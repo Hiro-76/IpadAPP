@@ -1,0 +1,18 @@
+{
+  "name": "RWY Wind Limit Calculator",
+  "short_name": "RWY WIND",
+  "description": "滑走路方向と横風 / 追い風 / 向かい風の制限値から、風向ごとの許容風速を計算（オフライン動作）",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#16213e",
+  "theme_color": "#0066ff",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

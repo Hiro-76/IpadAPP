@@ -1,11 +1,21 @@
-# NAVLOG WORKSHEET (iPad / オフライン対応)
+# iPad 用オフラインツール集
 
-フライトプラン PDF の `NAVIGATION LOG` を読み取り、ETO / ATO / ALT / RMG / SAT / SPOT WND を
-機内で記入するワークシート。**一度ホーム画面に追加すれば、Wi-Fi が無くても起動して PDF も読める。**
+**一度ホーム画面に追加すれば、Wi-Fi が無くても起動できる**アプリを 2 つ収録。
+どちらも端末内で完結し、外部への通信は一切しない。
+
+| アプリ | URL | 内容 |
+|---|---|---|
+| **NAVLOG WORKSHEET** | `https://hiro-76.github.io/IpadAPP/` | フライトプラン PDF の `NAVIGATION LOG` を読み取り、ETO / ATO / ALT / RMG / SAT / SPOT WND を機内で記入 |
+| **RWY Wind Limit Calculator** | `https://hiro-76.github.io/IpadAPP/wind/` | 滑走路方向と横風 / 追い風 / 向かい風の制限値から、風向ごとの許容風速を計算 |
+
+2 つは独立した PWA なので、**それぞれ別のアイコンとしてホーム画面に追加**できる
+（両方追加してもキャッシュや保存内容は干渉しない）。
 
 ---
 
 ## iPad での使い方
+
+アプリごとに同じ手順を行う（NAVLOG は `…/IpadAPP/`、風計算は `…/IpadAPP/wind/`）。
 
 1. **Safari**（Chrome ではなく Safari）で公開 URL を開く
 2. ヘッダー右のバッジが `CACHE …` → **`OFFLINE OK`** に変わるまで数秒待つ
@@ -23,10 +33,12 @@
 
 ### 記入内容の自動保存
 
-入力した T/O・ATO・ALT・RMG・SAT・SPOT WND と読み込んだプランは、
-端末内（localStorage）に自動保存される。iOS がアプリを終了させても、
-次に起動したときに「前回の作業を復元しました」と表示して続きから使える
-（不要なら `破棄` を押す）。長期保存したい場合は従来どおり `JSON保存` を使う。
+- **NAVLOG**: 入力した T/O・ATO・ALT・RMG・SAT・SPOT WND と読み込んだプランを
+  端末内（localStorage）に自動保存。iOS がアプリを終了させても、次の起動時に
+  「前回の作業を復元しました」と表示して続きから使える（不要なら `破棄`）。
+  長期保存したい場合は従来どおり `JSON保存` を使う。
+- **RWY Wind**: 滑走路・横風 / 向かい風 / 追い風の選択を保存し、次回起動時に
+  そのまま復元して結果表を出し直す。
 
 ---
 
@@ -49,15 +61,23 @@ GitHub Pages が最も簡単:
 ## ファイル構成
 
 ```
-index.html                アプリ本体（1 ファイル完結、外部通信なし）
-sw.js                     Service Worker（オフライン用プリキャッシュ）
-manifest.webmanifest      ホーム画面追加時の名前・アイコン・standalone 表示
-icons/                    アイコン（apple-touch-icon 180 / 192 / 512 / maskable）
-vendor/pdf.min.js         pdf.js 3.11.174 (legacy build) — CDN からローカル同梱に変更
-vendor/pdf.worker.min.js  pdf.js worker — これも同梱（オフラインで PDF を解析するため）
+index.html                    NAVLOG 本体（1 ファイル完結、外部通信なし）
+sw.js                         NAVLOG の Service Worker（オフライン用プリキャッシュ）
+manifest.webmanifest          ホーム画面追加時の名前・アイコン・standalone 表示
+icons/                        NAVLOG のアイコン（180 / 192 / 512 / maskable）
+vendor/pdf.min.js             pdf.js 3.11.174 (legacy build) — CDN からローカル同梱に変更
+vendor/pdf.worker.min.js      pdf.js worker — これも同梱（オフラインで PDF を解析するため）
+wind/index.html               RWY Wind Limit Calculator 本体
+wind/sw.js                    風計算アプリの Service Worker（scope は wind/ のみ）
+wind/manifest.webmanifest     風計算アプリのホーム画面設定
+wind/icons/                   風計算アプリのアイコン
 ```
 
-## オフライン化のためにやったこと
+2 つの Service Worker はそれぞれ自分の担当ファイルだけを扱い、キャッシュ名も
+`navlog-…` / `rwywind-…` と分けてあるので、片方の更新でもう一方のオフライン
+キャッシュが消えることはない。
+
+## オフライン化のためにやったこと（NAVLOG）
 
 - **pdf.js を CDN 参照からローカル同梱へ** — 以前は `cdnjs.cloudflare.com` から
   本体と worker を取得していたため、オフラインでは PDF 読込が失敗していた。
@@ -77,10 +97,23 @@ vendor/pdf.worker.min.js  pdf.js worker — これも同梱（オフラインで
 - ついでに、重複定義されていた `ensureWorker()` / `pdfToText()` を 1 つに整理し、
   CSV 出力の ETO 列が常に空になっていた参照ミス（`getElementById('eto…')`）を修正。
 
+## オフライン化のためにやったこと（RWY Wind Limit Calculator）
+
+- `wind/` に移し、**同じ方式で PWA 化**（`manifest.webmanifest` / `sw.js` /
+  `apple-touch-icon` / safe-area 対応 / 通信・キャッシュ状態バッジ / 更新通知）。
+  元々外部ファイルを読んでいないので、キャッシュ対象は本体とアイコンだけ。
+- 滑走路・各制限値の選択を localStorage に保存し、起動時に復元して自動で再計算。
+- **計算ロジック（sin / cos による横風・追い風成分の算出、最も厳しい制限の適用）は
+  一切変更していない。**
+- 2 つのアプリが同じサイトに同居するため、各 Service Worker が自分の担当 URL だけを
+  処理するように整理（`wind/` へのアクセスがルート側の NAVLOG に乗っ取られない、
+  片方の更新で他方のキャッシュを消さない）。
+
 ## 更新のしかた
 
-`index.html` などを変更したら **`sw.js` の `VERSION` を上げて** push する。
-次回オンラインで開いたときに「新しいバージョンがあります → 更新」が出る。
+`index.html` などを変更したら、**そのアプリの `sw.js` の `VERSION` を上げて** push する
+（NAVLOG は `sw.js`、風計算は `wind/sw.js`）。次回オンラインで開いたときに
+「新しいバージョンがあります → 更新」が出る。記入中に勝手にリロードはしない。
 
 ## 制限事項
 

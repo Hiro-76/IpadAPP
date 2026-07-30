@@ -958,12 +958,16 @@ function a2hsHint(){
     action:()=>{ try{ localStorage.setItem(LS_HINT,'1'); }catch(e){} }});
 }
 if(SW_OK){
-  const hadController = !!navigator.serviceWorker.controller;
+  /* 自分の sw.js が既に制御していた場合だけ「更新による交代」と見なす。
+     別スコープの SW から交代しただけでリロードしないように。 */
+  const OWN_SW = new URL('sw.js', location.href).href;
+  const prevCtrl = navigator.serviceWorker.controller;
+  const hadOwnController = !!prevCtrl && prevCtrl.scriptURL === OWN_SW;
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', ()=>{
     updNetBadge();
-    if(hadController && !reloading){ reloading = true; flushSave(); location.reload(); }
-    else if(!hadController) setTimeout(a2hsHint, 1200);
+    if(hadOwnController && !reloading){ reloading = true; flushSave(); location.reload(); }
+    else if(!hadOwnController) setTimeout(a2hsHint, 1200);
   });
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('sw.js', {scope:'./'}).then(reg=>{

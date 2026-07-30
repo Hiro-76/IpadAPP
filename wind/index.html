@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>RWY Wind Limit Calculator</title>
+
+  <!-- ---- PWA / iPad ホーム画面（オフライン起動）---- -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0066ff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="RWY WIND">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #333;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      /* ホーム画面起動（standalone）でステータスバー / ホームバーと重ならないように */
+      padding: calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right))
+               calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));
+    }
+
+    .header {
+      position: relative;
+      text-align: center;
+      margin-bottom: 2.5rem;
+      padding: 2rem 0;
+      background: linear-gradient(135deg, #0066ff 0%, #00d4ff 100%);
+      border-radius: 20px;
+      box-shadow: 0 8px 32px rgba(0, 102, 255, 0.3);
+    }
+
+    /* ---- オフライン / キャッシュ状態バッジ ---- */
+    .badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      color: rgba(255, 255, 255, 0.9);
+      background: rgba(255, 255, 255, 0.12);
+      white-space: nowrap;
+      font-weight: 600;
+    }
+    .badge.ready { border-color: #baffd4; color: #eafff2; background: rgba(0, 200, 90, 0.28) }
+    .badge.offline { border-color: #ffe08a; color: #fff6d9; background: rgba(255, 170, 0, 0.28) }
+    .badge.wait { opacity: 0.7 }
+
+    /* ---- トースト ---- */
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      transform: translateX(-50%) translateY(160%);
+      z-index: 60;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      max-width: min(92vw, 560px);
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #16213e;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #eaf2ff;
+      font-size: 13px;
+      line-height: 1.5;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+      transition: transform 0.25s ease, opacity 0.25s ease;
+      opacity: 0;
+      pointer-events: none;
+    }
+    #toast.on { transform: translateX(-50%) translateY(0); opacity: 1; pointer-events: auto }
+    #toast button {
+      min-height: 0;
+      padding: 7px 12px;
+      font-size: 12px;
+      border-radius: 8px;
+      box-shadow: none;
+      flex-shrink: 0;
+    }
+    #toast button:hover { transform: none }
+    
+    .header h1 {
+      font-size: 36px;
+      margin-bottom: 8px;
+      color: white;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    
+    .header p {
+      font-size: 15px;
+      color: rgba(255, 255, 255, 0.85);
+    }
+    
+    .section {
+      background: white;
+      border-radius: 16px;
+      padding: 28px;
+      margin-bottom: 2rem;
+      box-shadow: 0 10px 40px rgba(0, 102, 255, 0.15);
+      border: 1px solid rgba(0, 102, 255, 0.1);
+      animation: slideUp 0.5s ease-out;
+    }
+    
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #000;
+      margin-bottom: 1.5rem;
+      border-bottom: 2px solid #007AFF;
+      padding-bottom: 10px;
+    }
+    
+    .control-group {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .control {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .control label {
+      font-size: 16px;
+      font-weight: 500;
+      color: #666;
+    }
+    
+    .control select,
+    .control input {
+      min-height: 56px;
+      padding: 14px 18px;
+      border: 2px solid rgba(0, 102, 255, 0.2);
+      border-radius: 10px;
+      font-size: 17px;
+      font-family: inherit;
+      font-weight: 500;
+      transition: all 0.3s ease;
+      background: #f8fbff;
+    }
+    
+    .control select:focus,
+    .control input:focus {
+      outline: none;
+      border-color: #0066ff;
+      box-shadow: 0 0 0 4px rgba(0, 102, 255, 0.12);
+      background: white;
+    }
+    
+    .checkboxes {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 12px;
+    }
+    
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    
+    .checkbox-item input[type="checkbox"] {
+      width: 26px;
+      height: 26px;
+      cursor: pointer;
+      accent-color: #0066ff;
+      flex-shrink: 0;
+    }
+    
+    .checkbox-item label {
+      font-size: 16px;
+      cursor: pointer;
+      margin: 0;
+      color: #333;
+      transition: color 0.2s;
+      line-height: 1.5;
+    }
+    
+    button {
+      min-height: 60px;
+      padding: 16px 28px;
+      background: linear-gradient(135deg, #0066ff 0%, #00d4ff 100%);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 6px 20px rgba(0, 102, 255, 0.4);
+      letter-spacing: 0.5px;
+    }
+    
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px rgba(0, 102, 255, 0.5);
+    }
+    
+    button:active {
+      transform: translateY(0);
+      box-shadow: 0 4px 12px rgba(0, 102, 255, 0.3);
+    }
+    
+    .info-box {
+      padding: 14px;
+      background: #E3F2FD;
+      border-left: 4px solid #007AFF;
+      border-radius: 6px;
+      margin-bottom: 1.5rem;
+      font-size: 13px;
+      color: #0051D5;
+      line-height: 1.6;
+    }
+    
+    .info-box strong {
+      font-weight: 600;
+    }
+    
+    .table-wrapper {
+      overflow-x: auto;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      margin-top: 1rem;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 18px;
+    }
+    
+    th {
+      text-align: left;
+      padding: 18px 20px;
+      border-bottom: 2px solid rgba(0, 102, 255, 0.2);
+      font-weight: 700;
+      color: white;
+      background: linear-gradient(135deg, #0066ff 0%, #00d4ff 100%);
+      font-size: 17px;
+    }
+    
+    td {
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(0, 102, 255, 0.08);
+      text-align: left;
+      font-size: 18px;
+      font-weight: 500;
+    }
+    
+    tbody tr {
+      transition: all 0.2s ease;
+    }
+    
+    tbody tr:hover {
+      background: linear-gradient(90deg, rgba(0, 102, 255, 0.05) 0%, rgba(0, 212, 255, 0.05) 100%);
+    }
+    
+    tbody tr:nth-child(even) {
+      background: rgba(0, 102, 255, 0.02);
+    }
+    
+    .wind-dir {
+      font-weight: 700;
+      color: #0066ff;
+      min-width: 50px;
+      background: linear-gradient(90deg, rgba(0, 102, 255, 0.1) 0%, transparent 100%);
+      padding: 8px 12px;
+      border-radius: 6px;
+    }
+    
+    .empty-state {
+      padding: 3rem 2rem;
+      text-align: center;
+      color: #999;
+    }
+    
+    #result-section {
+      display: none;
+    }
+    
+    .result-title {
+      font-size: 15px;
+      color: #666;
+      margin-bottom: 1rem;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .result-title strong {
+      color: #000;
+      font-weight: 600;
+    }
+    
+    @media (max-width: 768px) {
+      .container {
+        padding: 12px;
+      }
+      
+      .section {
+        padding: 15px;
+      }
+      
+      .header h1 {
+        font-size: 22px;
+      }
+      
+      .control-group {
+        grid-template-columns: 1fr;
+      }
+      
+      .checkboxes {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      
+      table {
+        font-size: 12px;
+      }
+      
+      th, td {
+        padding: 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <span class="badge wait" id="netstate" title="オフライン利用の状態">CACHE …</span>
+      <h1>RWY Wind Limit Calculator</h1>
+      <p>滑走路方向と風制限値から許容風速を計算</p>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">設定</div>
+      
+      <div class="control-group">
+        <div class="control">
+          <label for="runway">滑走路（RWY）</label>
+          <select id="runway">
+            <option value="">選択してください</option>
+          </select>
+        </div>
+      </div>
+      
+      <div style="margin-bottom: 1.5rem;">
+        <label style="font-size: 13px; font-weight: 500; color: #666; display: block; margin-bottom: 12px;">向かい風成分の限界値（knots）</label>
+        <div class="checkboxes">
+          <div class="checkbox-item">
+            <input type="checkbox" id="headwindEnabled" value="25">
+            <label for="headwindEnabled">25 kt</label>
+          </div>
+        </div>
+      </div>
+      
+      <div style="margin-bottom: 1.5rem;">
+        <label style="font-size: 13px; font-weight: 500; color: #666; display: block; margin-bottom: 12px;">横風成分の限界値（knots）</label>
+        <div class="checkboxes">
+          <div class="checkbox-item">
+            <input type="checkbox" id="crosswind38" value="38">
+            <label for="crosswind38">38 kt（DRY 6）</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="crosswind25" value="25">
+            <label for="crosswind25">25 kt（WET 5）</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="crosswind20" value="20">
+            <label for="crosswind20">20 kt（RWYCC 4,3）</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="crosswind15" value="15">
+            <label for="crosswind15">15 kt（2ENG CATⅡ、Ⅲ / Auto Land / FLOODED 2 / RWYCC 4,3【2700m】）</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="crosswind10" value="10">
+            <label for="crosswind10">10 kt（1ENG CATⅡ、Ⅲ / FLOODED 1 / RWYCC 2,1【2700m】）</label>
+          </div>
+        </div>
+      </div>
+      
+      <div class="control-group">
+        <div class="control">
+          <label for="tailwindLimit">追い風成分の限界値（knots）</label>
+          <input type="number" id="tailwindLimit" value="15" min="0" max="50">
+        </div>
+      </div>
+      
+      <button onclick="calculateWindLimits()" style="width: 100%; font-size: 18px;">計算</button>
+    </div>
+    
+    <div id="result-section" class="section">
+      <div class="info-box">
+        <strong>計算根拠：</strong> 横風 = 総風速 × |sin(RWY角度差)| | 追い風 = 総風速 × |cos(RWY角度差)| (角度差90°以上で発生) | 最も厳しい制限を適用
+      </div>
+      <div id="result-table"></div>
+    </div>
+    
+    <div id="empty-message" class="empty-state">
+      滑走路方向と限界値を選択して「計算」ボタンをタップしてください
+    </div>
+  </div>
+
+  <div id="toast"><span id="toastMsg"></span><button id="toastBtn" hidden></button></div>
+  
+  <script>
+    const runwaySelect = document.getElementById('runway');
+    for (let i = 1; i <= 36; i++) {
+      const angle = i * 10;
+      const option = document.createElement('option');
+      option.value = angle;
+      option.textContent = String(i).padStart(2, '0');
+      runwaySelect.appendChild(option);
+    }
+    
+    function calculateWindLimits(silent) {
+      const runwayDir = parseInt(document.getElementById('runway').value);
+      const tailwindLimit = parseFloat(document.getElementById('tailwindLimit').value);
+      const headwindEnabled = document.getElementById('headwindEnabled').checked;
+      const headwindLimit = 25;
+      
+      const crosswindLimits = [];
+      ['crosswind38', 'crosswind25', 'crosswind20', 'crosswind15', 'crosswind10'].forEach(id => {
+        if (document.getElementById(id).checked) {
+          crosswindLimits.push(parseInt(document.getElementById(id).value));
+        }
+      });
+      
+      const limits = crosswindLimits;
+      
+      if (!runwayDir || limits.length === 0 || isNaN(tailwindLimit)) {
+        if (!silent) alert('滑走路方向、横風制限値、追い風制限値を入力してください');
+        return;
+      }
+      
+      // 偏位ごとに風向をグループ化
+      const deviationMap = {};
+      for (let windDir = 10; windDir <= 360; windDir += 10) {
+        let angleDiff = Math.abs(windDir - runwayDir);
+        if (angleDiff > 180) {
+          angleDiff = 360 - angleDiff;
+        }
+        
+        if (!deviationMap[angleDiff]) {
+          deviationMap[angleDiff] = [];
+        }
+        deviationMap[angleDiff].push(windDir);
+      }
+      
+      // 偏位でソートしてテーブルデータを生成
+      const tableData = [];
+      const deviations = Object.keys(deviationMap).map(Number).sort((a, b) => a - b);
+      
+      deviations.forEach(angleDiff => {
+        const windDirs = deviationMap[angleDiff].sort((a, b) => a - b);
+        const row = { windDirs, angleDiff };
+        
+        const angleRad = (angleDiff * Math.PI) / 180;
+        const sinValue = Math.sin(angleRad);
+        const cosValue = Math.cos(angleRad);
+        
+        limits.forEach(limit => {
+          let maxWind = null;
+          
+          if (angleDiff === 0) {
+            if (headwindEnabled) {
+              maxWind = Math.floor(headwindLimit);
+            } else {
+              maxWind = '-';
+            }
+          }
+          else if (angleDiff === 180) {
+            maxWind = Math.floor(tailwindLimit);
+          }
+          else {
+            if (Math.sin(angleRad) === 0) {
+              maxWind = '-';
+            } else {
+              const maxWindFromCrosswind = limit / Math.abs(Math.sin(angleRad));
+              
+              let calculatedWind = maxWindFromCrosswind;
+              
+              if (headwindEnabled && cosValue > 0.01) {
+                const maxWindFromHeadwind = headwindLimit / cosValue;
+                calculatedWind = Math.min(calculatedWind, maxWindFromHeadwind);
+              }
+              
+              if (angleDiff > 90) {
+                const absCosValue = Math.abs(cosValue);
+                if (absCosValue > 0.01) {
+                  const maxWindFromTailwind = tailwindLimit / absCosValue;
+                  calculatedWind = Math.min(calculatedWind, maxWindFromTailwind);
+                }
+              }
+              
+              maxWind = Math.floor(calculatedWind);
+            }
+          }
+          
+          row[`limit${limit}`] = maxWind;
+        });
+        
+        tableData.push(row);
+      })
+      
+      const rwyNumber = Math.round(runwayDir / 10);
+      
+      let headwindInfo = headwindEnabled ? ` | 向かい風制限: ${headwindLimit} kt` : '';
+      
+      let html = `<div class="result-title">
+        <strong>RWY ${String(rwyNumber).padStart(2, '0')}</strong> | 
+        横風制限: ${limits.join(', ')} kt | 追い風制限: ${tailwindLimit} kt${headwindInfo}
+      </div>`;
+      
+      html += '<div class="table-wrapper"><table><thead><tr><th>風向</th>';
+      limits.forEach(limit => {
+        html += `<th>${limit} kt<br><span style="font-size:11px; font-weight:400; color:#999;">許容風速</span></th>`;
+      });
+      html += '</tr></thead><tbody>';
+      
+      tableData.forEach(row => {
+        const windDirDisplay = row.windDirs.map(dir => String(dir).padStart(3, '0')).join(', ');
+        html += `<tr><td class="wind-dir">${windDirDisplay}°</td>`;
+        limits.forEach(limit => {
+          const value = row[`limit${limit}`];
+          html += `<td>${value === '-' ? '-' : value + ' kt'}</td>`;
+        });
+        html += '</tr>';
+      });
+      
+      html += '</tbody></table></div>';
+      
+      document.getElementById('result-table').innerHTML = html;
+      document.getElementById('result-section').style.display = 'block';
+      document.getElementById('empty-message').style.display = 'none';
+
+      CALCULATED = true;
+      saveState();
+    }
+
+    /* =====================================================================
+       OFFLINE SUPPORT
+       1) Service Worker で本体とアイコンをキャッシュ
+          → ホーム画面から Wi-Fi 無しで起動できる
+       2) 選択内容を localStorage に保存し、起動時に復元して再計算
+       3) 通信 / キャッシュ状態をヘッダーにバッジ表示
+       ===================================================================== */
+    const LS_STATE = 'rwywind.state.v1';
+    const LS_HINT  = 'rwywind.a2hs.hint.v1';
+    const CROSS_IDS = ['crosswind38', 'crosswind25', 'crosswind20', 'crosswind15', 'crosswind10'];
+    let CALCULATED = false;
+
+    /* ---- toast ---- */
+    let toastTimer = null;
+    function toast(msg, opt) {
+      const box = document.getElementById('toast');
+      const btn = document.getElementById('toastBtn');
+      if (!box) return;
+      opt = opt || {};
+      document.getElementById('toastMsg').textContent = msg;
+      if (opt.label) {
+        btn.hidden = false;
+        btn.textContent = opt.label;
+        btn.onclick = () => { hideToast(); if (opt.action) opt.action(); };
+      } else {
+        btn.hidden = true;
+        btn.onclick = null;
+      }
+      box.classList.add('on');
+      clearTimeout(toastTimer);
+      if (opt.ms !== 0) toastTimer = setTimeout(hideToast, opt.ms || 6000);
+    }
+    function hideToast() {
+      clearTimeout(toastTimer);
+      document.getElementById('toast').classList.remove('on');
+    }
+
+    /* ---- 選択内容の保存 / 復元 ---- */
+    function saveState() {
+      const s = {
+        v: 1,
+        runway: document.getElementById('runway').value,
+        headwind: document.getElementById('headwindEnabled').checked,
+        tailwind: document.getElementById('tailwindLimit').value,
+        cross: {},
+        calculated: CALCULATED
+      };
+      CROSS_IDS.forEach(id => { s.cross[id] = document.getElementById(id).checked; });
+      try { localStorage.setItem(LS_STATE, JSON.stringify(s)); } catch (e) { /* 保存できない環境 */ }
+    }
+    function restoreState() {
+      let d = null;
+      try { d = JSON.parse(localStorage.getItem(LS_STATE) || 'null'); } catch (e) {}
+      if (!d) return;
+      if (d.runway) document.getElementById('runway').value = d.runway;
+      document.getElementById('headwindEnabled').checked = !!d.headwind;
+      if (d.tailwind !== undefined && d.tailwind !== '') {
+        document.getElementById('tailwindLimit').value = d.tailwind;
+      }
+      CROSS_IDS.forEach(id => {
+        if (d.cross && id in d.cross) document.getElementById(id).checked = !!d.cross[id];
+      });
+      if (d.calculated) calculateWindLimits(true);   /* 復元時はアラートを出さない */
+    }
+    ['runway', 'headwindEnabled', 'tailwindLimit'].concat(CROSS_IDS).forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', saveState);
+      el.addEventListener('input', saveState);
+    });
+    window.addEventListener('pagehide', saveState);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) saveState(); });
+
+    /* ---- 通信 / キャッシュ状態バッジ ---- */
+    const SW_OK = ('serviceWorker' in navigator) && location.protocol !== 'file:';
+    function updNetBadge() {
+      const el = document.getElementById('netstate');
+      if (!el) return;
+      const controlled = SW_OK && !!navigator.serviceWorker.controller;
+      if (!navigator.onLine) {
+        el.textContent = 'OFFLINE';
+        el.className = 'badge offline';
+        el.title = controlled ? 'オフラインで動作中（キャッシュから起動）'
+                              : 'オフラインです（キャッシュ未完了の可能性があります）';
+      } else if (controlled) {
+        el.textContent = 'OFFLINE OK';
+        el.className = 'badge ready';
+        el.title = 'キャッシュ済み — ホーム画面から Wi-Fi 無しで起動できます';
+      } else if (SW_OK) {
+        el.textContent = 'CACHE …';
+        el.className = 'badge wait';
+        el.title = 'オフライン用のキャッシュを準備しています';
+      } else {
+        el.textContent = 'LOCAL';
+        el.className = 'badge';
+        el.title = 'Service Worker が使えません（file:// で開いている、または非対応）';
+      }
+    }
+    window.addEventListener('online', updNetBadge);
+    window.addEventListener('offline', updNetBadge);
+
+    /* ---- service worker ---- */
+    function isStandalone() {
+      return navigator.standalone === true ||
+             (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+    }
+    function a2hsHint() {
+      if (isStandalone()) return;
+      try { if (localStorage.getItem(LS_HINT)) return; } catch (e) { return; }
+      toast('オフラインで使うには 共有 → 「ホーム画面に追加」', {
+        label: 'OK', ms: 12000,
+        action: () => { try { localStorage.setItem(LS_HINT, '1'); } catch (e) {} }
+      });
+    }
+    if (SW_OK) {
+      /* 自分の sw.js が既に制御していた場合だけ「更新による交代」と見なす。
+         ルート側の SW から交代しただけでリロードしないように。 */
+      const OWN_SW = new URL('sw.js', location.href).href;
+      const prevCtrl = navigator.serviceWorker.controller;
+      const hadOwnController = !!prevCtrl && prevCtrl.scriptURL === OWN_SW;
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        updNetBadge();
+        if (hadOwnController && !reloading) { reloading = true; saveState(); location.reload(); }
+        else if (!hadOwnController) setTimeout(a2hsHint, 1200);
+      });
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js', { scope: './' }).then(reg => {
+          const offerUpdate = sw => toast('新しいバージョンがあります', {
+            label: '更新', ms: 0,
+            action: () => { saveState(); sw.postMessage({ type: 'SKIP_WAITING' }); }
+          });
+          if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
+          reg.addEventListener('updatefound', () => {
+            const sw = reg.installing;
+            if (!sw) return;
+            sw.addEventListener('statechange', () => {
+              if (sw.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(sw);
+            });
+          });
+          document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && navigator.onLine) reg.update().catch(() => {});
+          });
+          updNetBadge();
+          if (navigator.serviceWorker.controller) setTimeout(a2hsHint, 1500);
+        }).catch(err => {
+          console.warn('Service Worker を登録できませんでした', err);
+          updNetBadge();
+        });
+      });
+    }
+
+    /* ---- boot ---- */
+    updNetBadge();
+    restoreState();
+  </script>
+</body>
+</html>
