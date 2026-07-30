@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NAVLOG WORKSHEET</title>
+
+<!-- ---- PWA / iPad ホーム画面（オフライン起動）---- -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#151d27">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NAVLOG">
+<meta name="format-detection" content="telephone=no">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<style>
+:root{
+  --bg:#0e131a;
+  --panel:#151d27;
+  --panel2:#1b2531;
+  --rule:#27354a;
+  --plan:#8ea6bf;        /* printed plan values */
+  --ink:#ffc247;         /* pilot write-in (amber) */
+  --ok:#5fd48a;
+  --late:#ff7b6b;
+  --text:#dbe7f3;
+  --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.35);
+}
+html[data-theme="day"]{
+  --bg:#eef1f4;
+  --panel:#ffffff;
+  --panel2:#f4f7fa;
+  --rule:#c8d2dd;
+  --plan:#41546a;
+  --ink:#a05a00;
+  --ok:#1f7a45;
+  --late:#c0392b;
+  --text:#16202b;
+  --shadow:0 1px 0 rgba(0,0,0,.02), 0 6px 18px rgba(20,40,60,.10);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace;
+  font-size:14px;
+  -webkit-text-size-adjust:100%;
+  padding-bottom:env(safe-area-inset-bottom);
+}
+button,input,select{font-family:inherit;font-size:inherit;color:inherit}
+
+/* ---------- top bar ---------- */
+header{
+  position:sticky;top:0;z-index:30;
+  background:linear-gradient(180deg,var(--panel) 0%,var(--panel) 70%,rgba(0,0,0,0) 100%);
+  /* ホーム画面起動（standalone）ではステータスバー下に潜るので safe-area 分だけ下げる */
+  padding:calc(10px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 14px calc(14px + env(safe-area-inset-left));
+  border-bottom:1px solid var(--rule);
+  box-shadow:var(--shadow);
+}
+.hdr-row{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:baseline}
+.callsign{font-size:20px;font-weight:700;letter-spacing:.09em}
+.route{font-size:15px;letter-spacing:.12em;color:var(--plan)}
+.meta{font-size:11.5px;letter-spacing:.06em;color:var(--plan);opacity:.85}
+.spacer{flex:1 1 auto}
+
+.ctrls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.field{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--rule);border-radius:8px;padding:5px 9px}
+.field label{font-size:10.5px;letter-spacing:.14em;color:var(--plan);text-transform:uppercase}
+.field input{
+  width:5.6em;background:transparent;border:0;outline:none;
+  color:var(--ink);font-size:17px;font-weight:700;letter-spacing:.08em;text-align:center;
+}
+.btn{
+  background:var(--panel2);border:1px solid var(--rule);border-radius:8px;
+  padding:7px 11px;cursor:pointer;letter-spacing:.06em;font-size:12px;color:var(--text);
+}
+.btn:hover{border-color:var(--plan)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{border-color:var(--ink);color:var(--ink)}
+.btn:focus-visible,input:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.toggle{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--plan);cursor:pointer}
+.toggle input{accent-color:var(--ink);width:15px;height:15px}
+
+/* ---------- offline / cache state ---------- */
+.badge{
+  font-size:10px;letter-spacing:.12em;padding:3px 7px;border-radius:999px;
+  border:1px solid var(--rule);color:var(--plan);white-space:nowrap;
+}
+.badge.ready{border-color:var(--ok);color:var(--ok)}
+.badge.offline{border-color:var(--ink);color:var(--ink)}
+.badge.wait{opacity:.6}
+#toast{
+  position:fixed;left:50%;transform:translateX(-50%) translateY(140%);
+  bottom:calc(14px + env(safe-area-inset-bottom));z-index:60;
+  display:flex;align-items:center;gap:10px;max-width:min(92vw,560px);
+  background:var(--panel2);border:1px solid var(--rule);border-radius:10px;
+  padding:9px 12px;font-size:12px;line-height:1.5;color:var(--text);
+  box-shadow:0 10px 28px rgba(0,0,0,.45);
+  transition:transform .25s ease,opacity .25s ease;opacity:0;pointer-events:none;
+}
+#toast.on{transform:translateX(-50%) translateY(0);opacity:1;pointer-events:auto}
+#toast .btn{padding:5px 9px;font-size:11px}
+
+/* ---------- loader ---------- */
+#loader{max-width:960px;margin:22px auto;padding:0 14px}
+.drop{
+  border:1.5px dashed var(--rule);border-radius:12px;background:var(--panel);
+  padding:26px 18px;text-align:center;transition:border-color .15s,background .15s;
+}
+.drop.hot{border-color:var(--ink);background:var(--panel2)}
+.drop h2{margin:0 0 6px;font-size:14px;letter-spacing:.12em;font-weight:700}
+.drop p{margin:4px 0 14px;font-size:12px;color:var(--plan);line-height:1.7}
+.drop .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+#pasteWrap{margin-top:12px;display:none}
+#pasteArea{
+  width:100%;height:170px;background:var(--panel2);border:1px solid var(--rule);
+  border-radius:10px;padding:10px;color:var(--plan);font-size:11.5px;line-height:1.45;resize:vertical
+}
+.status{margin-top:10px;font-size:12px;letter-spacing:.04em;min-height:1.3em;text-align:center}
+.status.err{color:var(--late)}
+.status.ok{color:var(--ok)}
+
+/* ---------- column legend ---------- */
+#sheet{max-width:1400px;margin:0 auto;padding:14px 10px 90px}
+.legend{
+  display:none;position:sticky;top:var(--hdrH,96px);z-index:20;
+  background:var(--bg);border-bottom:1px solid var(--rule);
+  padding:6px 8px;font-size:9.5px;letter-spacing:.13em;color:var(--plan);opacity:.75;
+}
+.legend.on{display:block}
+.legend b{font-weight:400;color:var(--ink);opacity:.9}
+
+/* ---------- strips ---------- */
+.strip{
+  background:var(--panel);border:1px solid var(--rule);border-radius:10px;
+  margin:6px 0;padding:8px 10px;box-shadow:var(--shadow);
+  display:grid;grid-template-columns:minmax(150px,190px) 1fr minmax(300px,420px);
+  gap:10px;align-items:center;
+}
+.strip.flagged{border-color:var(--ink)}
+.strip.milestone{background:var(--panel2)}
+
+.wp{display:flex;flex-direction:column;gap:2px;min-width:0}
+.wp .name{font-size:19px;font-weight:700;letter-spacing:.1em;line-height:1.1;overflow:hidden;text-overflow:ellipsis}
+.wp .name .seq{font-size:10px;font-weight:400;color:var(--plan);opacity:.6;margin-right:6px;letter-spacing:.05em}
+.wp .pos{font-size:10.5px;color:var(--plan);opacity:.75;letter-spacing:.04em}
+
+.plan{display:flex;flex-wrap:wrap;gap:4px 14px;min-width:0}
+.cell{display:flex;flex-direction:column;line-height:1.25;min-width:0}
+.cell .k{font-size:8.5px;letter-spacing:.14em;color:var(--plan);opacity:.6}
+.cell .v{font-size:13px;color:var(--plan);white-space:nowrap}
+.cell .v.dim{opacity:.4}
+
+.entry{display:grid;grid-template-columns:repeat(6,1fr) auto;gap:7px;align-items:end;
+  background:var(--panel);border-radius:8px;padding:8px;border:1px solid var(--rule);
+  transition:background-color .2s,border-color .2s}
+.entry:has(input[data-f="ato"]:not(:placeholder-shown)){
+  background:rgba(72,187,232,.12);border-color:rgba(72,187,232,.4)}
+html[data-theme="day"] .entry:has(input[data-f="ato"]:not(:placeholder-shown)){
+  background:rgba(52,150,205,.10);border-color:rgba(52,150,205,.35)}
+.slot{display:flex;flex-direction:column;gap:4px;min-width:0}
+.slot .k{font-size:11px;font-weight:600;letter-spacing:.1em;color:var(--plan);opacity:.95;text-align:center;white-space:nowrap}
+.slot input,.slot .eto{
+  width:100%;text-align:center;border-radius:8px;padding:10px 2px;
+  border:1px solid var(--rule);background:var(--panel2);
+  font-size:clamp(18px,4.6vw,23px);font-weight:700;letter-spacing:.04em;color:var(--ink);
+  line-height:1.15;min-width:0;
+  transition:background-color .15s,border-color .15s;
+}
+.slot input[data-f="ato"]:not(:placeholder-shown){
+  background:rgba(95,212,138,.15);border-color:var(--ok);
+}
+html[data-theme="day"] .slot input[data-f="ato"]:not(:placeholder-shown){
+  background:rgba(31,122,69,.08);border-color:var(--ok);
+}
+.slot .eto{background:transparent;border-style:dashed;border-color:var(--rule);opacity:.95}
+.slot .eto .day{font-size:11px;vertical-align:super;opacity:.7}
+.eto_input{border-style:dotted !important}
+.eto_input::placeholder{color:var(--plan);opacity:.3;font-weight:400;font-size:16px}
+.slot input:focus{border-color:var(--ink);background:var(--panel)}
+.pv{display:none}
+.now{
+  border:1px solid var(--rule);background:var(--panel2);border-radius:8px;
+  color:var(--plan);padding:8px 10px;cursor:pointer;font-size:12px;line-height:1;height:44px;
+  transition:border-color .2s,color .2s}
+.now:hover{color:var(--ink);border-color:var(--ink)}
+.delta{font-size:13px;font-weight:600;text-align:center;letter-spacing:.04em;min-height:1.35em}
+.delta.early{color:var(--ok)}
+.delta.late{color:var(--late)}
+.delta.over{color:var(--ok)}
+.delta.under{color:var(--late)}
+
+/* dashed rule between strips, carrying REM / ISA */
+.rule{
+  display:flex;align-items:center;gap:10px;padding:0 12px;margin:1px 0;
+  font-size:9.5px;letter-spacing:.12em;color:var(--plan);opacity:.55;
+}
+.rule .line{flex:1 1 auto;border-top:1px dashed var(--rule)}
+
+@media (max-width:900px){
+  .strip{grid-template-columns:1fr;gap:8px}
+  .entry{grid-template-columns:repeat(6,1fr);}
+  .now{grid-column:1/-1;width:100%;height:36px}
+  .wp{flex-direction:row;align-items:baseline;gap:10px}
+  .slot .k{font-size:10px;letter-spacing:.04em}
+}
+
+/* ---------- print / save as PDF ---------- */
+#printHead{display:none}
+@media print{
+  @page{size:A4 landscape;margin:8mm 10mm}
+  body{max-width:none;margin:0;padding:0}
+  html[data-theme]{--bg:#fff;--panel:#fff;--panel2:#fff;--rule:#999;--plan:#000;--ink:#000;--text:#000;--ok:#000;--late:#000}
+  body{background:#fff;color:#000;font-size:8pt}
+  header,#loader,.now,.btn,.legend,#toast{display:none!important}
+  #printHead{display:block;border-bottom:1.5px solid #000;padding-bottom:4px;margin-bottom:6px}
+  #printHead .ph1{font-size:13pt;font-weight:700;letter-spacing:.08em}
+  #printHead .ph2{font-size:8.5pt;margin-top:2px}
+  #sheet{padding:0;max-width:none}
+  .strip{
+    break-inside:avoid;page-break-inside:avoid;border:0;border-bottom:1.5px solid #333;
+    border-radius:0;box-shadow:none;margin:0 2px;padding:3px 0;
+    display:contents;
+  }
+  .strip > .entry{display:grid;width:100%;margin:2px 0}
+  .strip.milestone{background:#fff}
+  .wp{display:flex;flex-direction:row;align-items:baseline;gap:4px;margin-bottom:1px;padding:0 2px}
+  .wp .name{font-size:4.5pt;font-weight:700;line-height:1;letter-spacing:0}
+  .wp .name .seq{font-size:3.5pt;opacity:0.6;margin-right:2px}
+  .wp .pos{display:none}
+  .plan{gap:1px 10px}.cell .k{font-size:5.5pt}.cell .v{font-size:7.5pt}
+  .entry{gap:4px;padding:5px;margin:0;grid-template-columns:repeat(6,1fr) auto;width:100%;border:1px solid #666;border-radius:6px;background:#111}
+  .slot .k{font-size:6.5pt;opacity:1;color:#666 !important;font-weight:700}
+  .slot input{display:none}
+  .slot .eto{border:0;padding:0;font-size:10pt;text-align:center}
+  .pv{display:block !important;text-align:center;font-size:13pt !important;font-weight:900 !important;
+      border-bottom:1px solid #222;min-height:1.5em;padding:6px 3px;
+      color:#ffffff !important;background:#000000 !important;line-height:1.5;
+      letter-spacing:0.05em}
+  .delta{font-size:7pt;min-height:0}
+  .rule{font-size:4.5pt;opacity:0.8;padding:1px 6px;margin:0;display:none}
+}
+</style>
+<!-- pdf.js はローカル同梱（ネット接続不要 / Service Worker がキャッシュ） -->
+<script src="vendor/pdf.min.js"></script>
+</head>
+<body>
+
+<header id="topbar">
+  <div class="hdr-row">
+    <span class="callsign" id="flt">NAVLOG</span>
+    <span class="route" id="rte">— / —</span>
+    <span class="meta" id="fltmeta">PDF を読み込んでください</span>
+    <span class="spacer"></span>
+    <span class="badge wait" id="netstate" title="オフライン利用の状態">CACHE …</span>
+    <span class="meta" id="utc">UTC --:--</span>
+  </div>
+  <div class="ctrls">
+    <div class="field">
+      <label for="toff">T/O (Z)</label>
+      <input id="toff" inputmode="numeric" placeholder="0600" maxlength="5" autocomplete="off">
+    </div>
+    <button class="btn" id="btnPdfLoad" title="PDF ファイルを読み込む">📄 PDF読込</button>
+    <button class="btn" id="btnStd" title="プランの STD を T/O に入れる">STD 呼出</button>
+    <button class="btn" id="btnNowTo" title="現在の UTC を T/O に入れる">NOW</button>
+    <label class="toggle" title="ATO を入れた地点以降の ETO を、その実績時刻を起点に引き直します">
+      <input type="checkbox" id="reflow"> ATO 基準で ETO 更新
+    </label>
+    <span class="spacer"></span>
+    <button class="btn" id="btnCsv">CSV</button>
+    <button class="btn" id="btnSave">JSON保存</button>
+    <button class="btn" id="btnLoad">JSON読込</button>
+    <button class="btn primary" id="btnPrint" title="印刷ダイアログで「PDFとして保存」を選んでください">PDF保存</button>
+    <button class="btn" id="btnTheme">☀︎</button>
+    <button class="btn" id="btnNew">別のプラン</button>
+  </div>
+</header>
+
+<section id="loader">
+  <div class="drop" id="drop">
+    <h2>FLIGHT PLAN PDF</h2>
+    <p>NAVIGATION LOG から ALTERNATE DATA の直前までを読み取ります。<br>
+       ここに PDF をドロップ、またはファイルを選択してください。<br>
+       <span style="opacity:.75">読み取りは端末内で完結します。ホーム画面に追加すれば Wi-Fi 無し（オフライン）でも起動・PDF 読込が可能です。</span></p>
+    <div class="row">
+      <button class="btn primary" id="btnPick">PDF を選ぶ</button>
+      <button class="btn" id="btnPaste">テキストを貼る</button>
+      <button class="btn" id="btnSample">サンプル (NH159)</button>
+    </div>
+    <div id="pasteWrap">
+      <textarea id="pasteArea" placeholder="NAVIGATION LOG のテキストをそのまま貼り付けてから「読み込む」を押してください"></textarea>
+      <div class="row" style="margin-top:8px"><button class="btn primary" id="btnPasteGo">読み込む</button></div>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+  <input type="file" id="file" accept="application/pdf,.pdf,.txt" hidden>
+  <input type="file" id="fileJson" accept="application/json,.json" hidden>
+</section>
+
+<div class="legend" id="legend">
+  PLAN: TC/MC · GS/TAS · DIST · REM · CTME/RTME · ALT · FUEL · SAT<sub>plan</sub> · WIND · MW/TP · ISA &nbsp;|&nbsp;
+  <b>記入: ETO(自動) · ATO · ALT · RMG(ΔFUEL自動) · SAT · SPOT WND</b>
+</div>
+<div id="printHead"><div class="ph1" id="phTitle"></div><div class="ph2" id="phSub"></div></div>
+<main id="sheet"></main>
+
+<div id="toast"><span id="toastMsg"></span><button class="btn" id="toastBtn" hidden></button></div>
+
+
+<script>
+/* =======================================================================
+   NAVLOG WORKSHEET  —  single-file, offline-capable
+   ======================================================================= */
+
+//--PARSER-START--
+/* ---- time helpers ---------------------------------------------------- */
+function ctmeToMin(s){                       // "13.27" / "0.15" -> minutes
+  const m = /^(\d{1,2})\.(\d{2})$/.exec(String(s||'').trim());
+  return m ? (+m[1])*60 + (+m[2]) : null;
+}
+function clockToMin(s){                      // "0600" / "06:00" / "6:00" -> minutes
+  const t = String(s||'').trim().replace(/[:.\s]/g,'');
+  if(!/^\d{3,4}$/.test(t)) return null;
+  const p = t.padStart(4,'0'), h = +p.slice(0,2), mi = +p.slice(2);
+  if(h>23||mi>59) return null;
+  return h*60+mi;
+}
+function minToClock(m){
+  const v = ((m%1440)+1440)%1440;
+  return String(Math.floor(v/60)).padStart(2,'0') + ':' + String(v%60).padStart(2,'0');
+}
+function dayOffset(m){ return Math.floor(m/1440); }
+/* fuel in navlog units (x1000 LB, one decimal).  "284.1" / "2841" / "284100" -> 284.1 */
+function fuelVal(s){
+  const t = String(s||'').trim().replace(/[,\s]/g,'');
+  if(!/^\d*\.?\d+$/.test(t)) return null;
+  if(t.indexOf('.')>=0) return parseFloat(t);
+  const n = parseInt(t,10);
+  if(t.length<=3) return n;
+  if(t.length===4) return n/10;
+  return n/1000;
+}
+function fmtFuelDiff(d){ return (d>0?'+':(d<0?'-':'')) + Math.abs(d).toFixed(1); }
+
+/* ---- navigation log parser ------------------------------------------ */
+const RE_A = /^(\d{3})\s+(\d{3}|\.\.)\s+(\d{1,2}\.\d{2})\s+([NS]\d+[EW]\d+)\s*(.*)$/;
+const RE_B = /^(\d{3})\s+(\d{3}|\.\.)\s+(\d{1,2}\.\d{2})\s+([A-Z0-9][A-Z0-9\-\/]*|-[A-Z0-9]+)\s+(.*)$/;
+const RE_ALT  = /^(CLM|DEC|\d{4,5})$/;
+const RE_FUEL = /^\d{1,3}\.\d$/;
+
+function parseNavlog(raw){
+  const all = String(raw||'').replace(/\r/g,'').replace(/\f/g,'\n').split('\n')
+                .map(s => s.replace(/\u00a0/g,' ').trim());
+
+  // --- flight identity (scan whole document, harmless if absent) ---
+  const doc = all.join('\n');
+  const info = {};
+  let m;
+  if((m=/^\s*([A-Z]{3}\d{3,4})\/\d+\/\d+\s+([A-Z]{4})-([A-Z]{4})/m.exec(doc))){
+    info.flight=m[1]; info.dep=m[2]; info.dest=m[3];
+  }
+  if((m=/STD\s+(\d{4})Z?/.exec(doc)))  info.std=m[1];
+  if((m=/STA\s+(\d{4})Z?/.exec(doc)))  info.sta=m[1];
+  if((m=/\b([A-Z]{2}\d{3}[A-Z])\b/.exec(doc))) info.reg=m[1];
+  if((m=/\b(\d{2}[A-Z]{3}\d{2})\b/.exec(doc))) info.date=m[1];
+  if((m=/PLAN\s+B\/T\s+(\d+HR\d+MIN)\s+F\/T\s+(\d+HR\d+MIN)/.exec(doc))){ info.bt=m[1]; info.ft=m[2]; }
+
+  // --- isolate the navigation-log block ---
+  let start = all.findIndex(l => /^TC\s+GS\s+CTME/.test(l));
+  if(start < 0) start = all.findIndex(l => /^NAVIGATION\s+LOG$/.test(l));
+  if(start < 0) start = 0;
+  let end = all.findIndex((l,i) => i>start &&
+        /^(ALTERNATE\s+DATA|EQUAL\s+TIME\s+POINT|DIVERSION\s+SUMMARY|-?WINDS\/TEMP)/.test(l));
+  if(end < 0) end = all.length;
+  const lines = all.slice(start, end)
+    .filter(l => l && !/^TC\s+GS\s+CTME/.test(l) && !/^MC\s+TAS\s+RTME/.test(l)
+              && !/^NAVIGATION\s+LOG$/.test(l) && !/^JDP:/.test(l)
+              && !/^-?(FUEL PLAN|COMPANY|SUMMARY)/.test(l));
+
+  if((m=/^([A-Z]{4})\s+ELEV\s+(\d+)FT/.exec(lines[0]||''))){ info.dep = info.dep||m[1]; info.depElev=+m[2]; }
+
+  // --- records: line A + line B (+ dashed rule) ---
+  const wps = [];
+  for(let i=0;i<lines.length-1;i++){
+    const a = RE_A.exec(lines[i]);   if(!a) continue;
+    const b = RE_B.exec(lines[i+1]); if(!b) continue;
+
+    // line A tail: [ETO] ZTME [ALT] [FUEL] [TMP] [ZWIND] [MW/TP]
+    let t = a[5].split(/\s+/).filter(Boolean), k = 0;
+    if(t[k] && /^\.+$/.test(t[k])) k++;                       // ETO placeholder
+    const ztme = (t[k] && /^\d{1,2}\.\d{2}$/.test(t[k])) ? t[k++] : '';
+    const alt  = (t[k] && RE_ALT.test(t[k]))  ? t[k++] : '';
+    const fuel = (t[k] && RE_FUEL.test(t[k])) ? t[k++] : '';
+    const tmp  = (t[k] && /^-?\d{1,2}$/.test(t[k])) ? t[k++] : (t[k++]||'');
+    const wind = (t[k] && /^\d{6}$/.test(t[k])) ? t[k++] : (t[k++]||'');
+    const mwtp = t.slice(k).join(' ').replace(/^[.\s]+$/,'');
+
+    // line B tail: [ATO] DIST ...
+    const tb = b[5].split(/\s+/).filter(Boolean);
+    let dist = '';
+    for(const tok of tb){ if(/^\d{2,4}$/.test(tok)){ dist = tok; break; } }
+
+    // dashed rule that follows: (REM DIST) ... (ISA DEV)
+    let rem='', isa='';
+    const rule = lines[i+2]||'';
+    if(/[-–]\s*[-–]/.test(rule) || /^ELEV\s/.test(rule)){
+      const p = rule.match(/\((\s*\d+\s*)\)/g) || [];
+      if(p[0]) rem = p[0].replace(/[()\s]/g,'');
+      if(p[1]) isa = p[1].replace(/[()\s]/g,'');
+    }
+
+    wps.push({
+      seq: wps.length+1,
+      name: b[4],
+      pos:  a[4],
+      tc: a[1], gs: a[2]==='..'?'':a[2],
+      mc: b[1], tas: b[2]==='..'?'':b[2],
+      ctme: a[3], rtme: b[3],
+      ctmeMin: ctmeToMin(a[3]),
+      ztme, dist, rem, isa,
+      alt, fuel,
+      tmp: tmp==='..'?'':tmp,
+      wind: wind==='..'?'':wind,
+      mwtp: (mwtp==='..'||mwtp==='. ..')?'':mwtp,
+      ato:'', alt_in:'', rmg:'', sat:'', spot:''
+    });
+    i += 1;
+  }
+  if(wps.length) info.dest = wps[wps.length-1].name;
+  return {info, wps};
+}
+//--PARSER-END--
+
+/* =======================================================================
+   PDF text extraction (pdf.js) — rebuild physical lines from text items
+   pdf.js とその worker は vendor/ にローカル同梱。オフラインでも PDF が読める。
+   ======================================================================= */
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js';
+function ensureWorker(){
+  if(!window.pdfjsLib) return false;
+  if(!pdfjsLib.GlobalWorkerOptions.workerSrc){
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(PDFJS_WORKER, location.href).href;
+  }
+  return true;
+}
+async function pdfToText(buf){
+  if(!ensureWorker()){
+    console.warn('pdf.js library not loaded (vendor/pdf.min.js)');
+    return null;
+  }
+  try{
+    const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+    const pages = [];
+    for(let p=1;p<=pdf.numPages;p++){
+      const page = await pdf.getPage(p);
+      const tc = await page.getTextContent();
+      const rows = new Map();
+      for(const it of tc.items){
+        if(!it.str) continue;
+        const y = Math.round(it.transform[5]/2)*2;
+        if(!rows.has(y)) rows.set(y,[]);
+        rows.get(y).push({x:it.transform[4], w:it.width||0, s:it.str});
+      }
+      const out = [...rows.keys()].sort((a,b)=>b-a).map(y=>{
+        const items = rows.get(y).sort((a,b)=>a.x-b.x);
+        let line='', endX=null;
+        for(const it of items){
+          const cw = it.s.length ? (it.w/it.s.length) : 4;
+          if(endX!==null && (it.x-endX) > cw*0.55) line += ' ';
+          line += it.s;
+          endX = it.x + it.w;
+        }
+        return line;
+      });
+      pages.push(out.join('\n'));
+    }
+    return pages.join('\n');
+  }catch(e){
+    console.error(e);
+    return null;
+  }
+}
+
+/* =======================================================================
+   State + rendering
+   ======================================================================= */
+
+let STATE = {info:{}, wps:[], etoBaseIdx:-1};  /* 最後に手修正された ETO の WP インデックス */
+const $ = s => document.querySelector(s);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function setStatus(msg, kind){
+  const el = $('#status');
+  el.textContent = msg||''; el.className = 'status' + (kind?(' '+kind):'');
+}
+
+function load(parsed){
+  if(!parsed.wps.length){
+    setStatus('ウェイポイントを検出できませんでした。別のページ範囲か、テキスト貼り付けを試してください。','err');
+    return;
+  }
+  STATE = parsed;
+  const i = parsed.info;
+  $('#flt').textContent = i.flight || 'NAVLOG';
+  $('#rte').textContent = (i.dep||'????') + ' → ' + (i.dest||'????');
+  $('#fltmeta').textContent = [
+    i.date, i.reg,
+    i.std?('STD '+i.std+'Z'):'', i.sta?('STA '+i.sta+'Z'):'',
+    i.ft?('F/T '+i.ft):'',
+    parsed.wps.length + ' WPT'
+  ].filter(Boolean).join('  ·  ');
+  if(i.std && !$('#toff').value) $('#toff').value = i.std;
+  $('#loader').style.display = 'none';
+  $('#legend').classList.add('on');
+  render();
+  setStatus('');
+  saveSession();      /* オフライン再起動用に localStorage へ退避 */
+}
+
+function render(){
+  const host = $('#sheet');
+  host.innerHTML = STATE.wps.map(w => stripHTML(w)).join('');
+  host.querySelectorAll('input[data-f]').forEach(inp=>{
+    inp.addEventListener('input', onEntry);
+    inp.addEventListener('blur', onBlur);
+    // JSON読み込み時など、初期値がある場合は色を適用
+    if(inp.dataset.f==='ato' && inp.value){
+      inp.dispatchEvent(new Event('input', {bubbles:true}));
+    }
+  });
+  host.querySelectorAll('button[data-now]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const idx = +b.dataset.now;
+      const d = new Date();
+      const v = String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinutes()).padStart(2,'0');
+      const inp = host.querySelector('input[data-f="ato"][data-i="'+idx+'"]');
+      inp.value = v; onEntry({target:inp}); inp.focus();
+    });
+  });
+  recompute();
+}
+
+function cell(k,v,extra){
+  return '<div class="cell"><span class="k">'+k+'</span><span class="v'+(v?'':' dim')+'">'+
+         (v? esc(v) : '—')+(extra||'')+'</span></div>';
+}
+function stripHTML(w){
+  const i = w.seq-1;
+  const milestone = /^(TOC|TOD|ETP\d?|EEP\d?|EXP\d?)$/.test(w.name);
+  return `
+  <div class="strip${milestone?' milestone':''}" id="s${i}">
+    <div class="wp">
+      <span class="name"><span class="seq">${String(w.seq).padStart(2,'0')}</span>${esc(w.name)}</span>
+      <span class="pos">${esc(w.pos)}</span>
+    </div>
+    <div class="plan">
+      ${cell('TC/MC', (w.tc||'---')+'/'+(w.mc||'---'))}
+      ${cell('GS/TAS', (w.gs&&w.tas)? (w.gs+'/'+w.tas) : '')}
+      ${cell('DIST', w.dist)}
+      ${cell('CTME', w.ctme)}
+      ${cell('RTME', w.rtme)}
+      ${cell('ALT', w.alt)}
+      ${cell('FUEL', w.fuel)}
+      ${cell('TMP', w.tmp)}
+      ${cell('WIND', w.wind)}
+      ${cell('MW/TP', w.mwtp)}
+    </div>
+    <div class="entry">
+      <div class="slot"><span class="k">ETO</span>
+        <input data-f="eto" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="--:--" autocomplete="off" value="" class="eto_input" title="手入力するとそこを基準に以降が再計算されます">
+        <div class="delta" id="dlt${i}"></div></div>
+      <div class="slot"><span class="k">ATO</span>
+        <input data-f="ato" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="----" autocomplete="off" value="${esc(w.ato)}">
+        <span class="pv" id="pvato${i}"></span></div>
+      <div class="slot"><span class="k">ALT</span>
+        <input data-f="alt_in" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="-----" autocomplete="off" value="${esc(w.alt_in)}" title="実績高度">
+        <span class="pv" id="pvalt${i}"></span></div>
+      <div class="slot"><span class="k">RMG</span>
+        <input data-f="rmg" data-i="${i}" inputmode="decimal" maxlength="7" placeholder="---.-" autocomplete="off" value="${esc(w.rmg)}"
+               title="PLAN FUEL ${esc(w.fuel||'')} との差を自動表示 (284.1 / 2841 / 284100 いずれの書き方でも可)">
+        <span class="pv" id="pvrmg${i}"></span>
+        <div class="delta" id="fdl${i}"></div></div>
+      <div class="slot"><span class="k">SAT</span>
+        <input data-f="sat" data-i="${i}" inputmode="text" maxlength="5" placeholder="---" autocomplete="off" value="${esc(w.sat)}">
+        <span class="pv" id="pvsat${i}"></span></div>
+      <div class="slot"><span class="k">SPOT WND</span>
+        <input data-f="spot" data-i="${i}" inputmode="text" maxlength="7" placeholder="------" autocomplete="off" value="${esc(w.spot)}">
+        <span class="pv" id="pvspot${i}"></span></div>
+      <button class="now" data-now="${i}" title="現在の UTC を ATO に記入">NOW</button>
+    </div>
+  </div>
+  <div class="rule"><span class="line"></span>REM ${esc(w.rem||'----')} NM${w.isa?(' &nbsp;·&nbsp; ISA +'+(+w.isa)):''}<span class="line"></span></div>`;
+}
+
+function onEntry(e){
+  const el = e.target, i = +el.dataset.i, f = el.dataset.f;
+  scheduleSave();
+  if(f==='eto'){
+    const m = clockToMin(el.value);
+    if(m!=null){
+      STATE.wps[i].eto_manual = m;
+      STATE.etoBaseIdx = i;
+      recompute();
+    }
+  }else if(f==='ato'){
+    STATE.wps[i].ato = el.value;
+    const strip = $('#s'+i);
+    if(strip) strip.classList.toggle('flagged', !!(el.value||STATE.wps[i].rmg));
+    recompute();
+  }else{
+    STATE.wps[i][f] = el.value;
+    const strip = $('#s'+i);
+    if(strip) strip.classList.toggle('flagged', !!(STATE.wps[i].ato||STATE.wps[i].rmg));
+    if(f==='rmg') recompute();
+  }
+}
+function onBlur(e){
+  const el = e.target, f = el.dataset.f, i = +el.dataset.i;
+  scheduleSave();
+  if(f==='ato'){
+    const m = clockToMin(el.value);
+    if(m!=null){ el.value = minToClock(m).replace(':',''); STATE.wps[i].ato = el.value; recompute(); }
+  }else if(f==='eto'){
+    const m = clockToMin(el.value);
+    if(m!=null){ el.value = minToClock(m).replace(':',''); }
+  }
+}
+
+/* ETO = T/O + CTME  (optionally re-based on the latest ATO) */
+function recompute(){
+  // 各 WP について、直前の手修正 ETO（または T/O）を基準に計算
+  const to = clockToMin($('#toff').value);
+
+  STATE.wps.forEach((w,i)=>{
+    const etoInp = document.querySelector('input[data-f="eto"][data-i="'+i+'"]');
+    const dEl    = document.getElementById('dlt'+i);
+    if(!etoInp) return;
+
+    /* RMG - PLAN FUEL */
+    const fEl = document.getElementById('fdl'+i);
+    if(fEl){
+      const plan = fuelVal(w.fuel), rmg = fuelVal(w.rmg);
+      if(plan!=null && rmg!=null){
+        const d = Math.round((rmg-plan)*10)/10;
+        fEl.textContent = fmtFuelDiff(d);
+        fEl.title = 'PLAN ' + plan.toFixed(1) + ' / ' + (d>=0?'+':'') + Math.round(d*1000) + ' LB';
+        fEl.className = 'delta ' + (d>0?'over':(d<0?'under':''));
+      }else{ fEl.textContent=''; fEl.className='delta'; fEl.title=''; }
+    }
+
+    // このWPの ETO を計算: 自分が手修正されているか、手前の最後の手修正WPを基準に
+    let etoAbs = null;
+    if(w.eto_manual != null){
+      // 自分が手修正されている
+      etoAbs = w.eto_manual;
+      etoInp.value = minToClock(etoAbs).replace(':','');
+      etoInp.classList.add('manual');
+    }else{
+      // 手前を遡って最後の手修正WPを探す
+      let baseEtoMin = to, baseCtmeMin = 0;
+      for(let j=i-1;j>=0;j--){
+        if(STATE.wps[j].eto_manual != null){
+          baseEtoMin = STATE.wps[j].eto_manual;
+          baseCtmeMin = STATE.wps[j].ctmeMin || 0;
+          break;
+        }
+      }
+      // 自動計算
+      if(baseEtoMin!=null && w.ctmeMin!=null){
+        etoAbs = baseEtoMin + (w.ctmeMin - baseCtmeMin);
+        const d = dayOffset(etoAbs);
+        etoInp.value = minToClock(etoAbs).replace(':','');
+        etoInp.classList.remove('manual');
+      }else{
+        etoInp.value = '';
+      }
+    }
+
+    const atoMin = clockToMin(w.ato);
+    if(atoMin!=null && etoAbs!=null){
+      // pick the day that puts ATO nearest to ETO
+      let best=null;
+      for(let k=-1;k<=1;k++){
+        const cand = atoMin + (dayOffset(etoAbs)+k)*1440;
+        if(best===null || Math.abs(cand-etoAbs) < Math.abs(best-etoAbs)) best = cand;
+      }
+      const diff = best - etoAbs;
+      dEl.textContent = (diff>0?'+':'') + diff;
+      dEl.className = 'delta ' + (diff>0?'late':(diff<0?'early':''));
+
+    }else{
+      dEl.textContent = ''; dEl.className = 'delta';
+    }
+  });
+}
+
+/* =======================================================================
+   Import / export
+   ======================================================================= */
+async function handleFile(file){
+  if(!file) return;
+  setStatus('読み込み中… ' + file.name);
+  try{
+    let text;
+    if(/\.txt$/i.test(file.name) || file.type==='text/plain'){
+      text = await file.text();
+    }else if(/\.pdf$/i.test(file.name) || file.type==='application/pdf'){
+      const buf = await file.arrayBuffer();
+      text = await pdfToText(buf);
+      if(!text){
+        setStatus(window.pdfjsLib
+          ? 'この PDF からテキストを取り出せませんでした（スキャン画像の可能性）— テキスト貼り付けをお試しください'
+          : 'vendor/pdf.min.js を読み込めませんでした — ファイル一式が揃っているか確認してください','err');
+        return;
+      }
+    }else{
+      setStatus('テキスト (.txt) または PDF ファイルをお選びください','err');
+      return;
+    }
+    load(parseNavlog(text));
+  }catch(err){
+    console.error(err);
+    setStatus('読み込めませんでした: ' + err.message + ' — テキスト貼り付けをお試しください','err');
+  }
+}
+function toCSV(){
+  const cols = ['SEQ','WPT','LAT/LONG','TC','MC','GS','TAS','DIST','REM','CTME','RTME','ETO','ATO','DIFF',
+                'ALT(PL)','ALT','FUEL','RMG','FUEL DIFF','TMP','SAT','WIND','SPOT WND','MW/TP','ISA'];
+  const rows = [cols.join(',')];
+  STATE.wps.forEach((w,i)=>{
+    const eto = document.querySelector('input[data-f="eto"][data-i="'+i+'"]');
+    const dlt = document.getElementById('dlt'+i);
+    const fdl = document.getElementById('fdl'+i);
+    rows.push([w.seq,w.name,w.pos,w.tc,w.mc,w.gs,w.tas,w.dist,w.rem,w.ctme,w.rtme,
+               eto?eto.value:'', w.ato, dlt?dlt.textContent:'',
+               w.alt,w.alt_in,w.fuel,w.rmg,fdl?fdl.textContent:'',w.tmp,w.sat,w.wind,w.spot,w.mwtp,w.isa]
+              .map(v=>{ v=String(v==null?'':v); return /[",]/.test(v)? '"'+v.replace(/"/g,'""')+'"' : v; }).join(','));
+  });
+  return rows.join('\n');
+}
+function download(name, text, type){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text],{type:type||'text/plain;charset=utf-8'}));
+  a.download = name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+}
+function stamp(){
+  const d=new Date();
+  return (STATE.info.flight||'NAVLOG')+'_'+d.toISOString().slice(0,10).replace(/-/g,'')+
+         '_'+String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinutes()).padStart(2,'0')+'Z';
+}
+
+/* =======================================================================
+   Wiring
+   ======================================================================= */
+$('#btnPick').onclick   = ()=> $('#file').click();
+$('#btnPdfLoad').onclick = ()=> $('#file').click();
+$('#file').onchange     = e => handleFile(e.target.files[0]);
+$('#btnPaste').onclick  = ()=>{ const w=$('#pasteWrap'); w.style.display = w.style.display==='block'?'none':'block'; };
+$('#btnPasteGo').onclick= ()=>{ const t=$('#pasteArea').value; if(t.trim()) load(parseNavlog(t)); };
+$('#btnSample').onclick = ()=> load(parseNavlog(SAMPLE));
+$('#btnNew').onclick    = ()=>{ $('#loader').style.display='block'; window.scrollTo({top:0,behavior:'smooth'}); };
+
+$('#toff').addEventListener('input', ()=>{ recompute(); scheduleSave(); });
+$('#toff').addEventListener('blur', e=>{ const m=clockToMin(e.target.value); if(m!=null){ e.target.value = minToClock(m).replace(':',''); recompute(); scheduleSave(); }});
+$('#reflow').addEventListener('change', ()=>{ recompute(); scheduleSave(); });
+$('#btnStd').onclick = ()=>{ if(STATE.info.std){ $('#toff').value = STATE.info.std; recompute(); scheduleSave(); } };
+$('#btnNowTo').onclick= ()=>{ const d=new Date();
+  $('#toff').value = String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinutes()).padStart(2,'0'); recompute(); scheduleSave(); };
+
+$('#btnCsv').onclick  = ()=> STATE.wps.length && download(stamp()+'.csv', toCSV(), 'text/csv;charset=utf-8');
+$('#btnSave').onclick = ()=> STATE.wps.length && download(stamp()+'.json',
+  JSON.stringify({toff:$('#toff').value, info:STATE.info, wps:STATE.wps}, null, 1), 'application/json');
+$('#btnLoad').onclick = ()=> $('#fileJson').click();
+$('#fileJson').onchange = async e=>{
+  const f = e.target.files[0]; if(!f) return;
+  try{
+    const d = JSON.parse(await f.text());
+    if(!d.wps || !d.wps.length) throw new Error('wps がありません');
+    if(d.toff) $('#toff').value = d.toff;
+    load({info:d.info||{}, wps:d.wps});
+  }catch(err){ setStatus('JSON を読み込めませんでした: '+err.message,'err'); }
+};
+function preparePrint(){
+  const i = STATE.info;
+  $('#phTitle').textContent = [i.flight||'NAVLOG', (i.dep||'')+'-'+(i.dest||''), i.reg||'', i.date||''].filter(Boolean).join('   ');
+  const d = new Date();
+  $('#phSub').textContent =
+    'T/O ' + ($('#toff').value||'----') + 'Z' +
+    (i.std?('   STD '+i.std+'Z'):'') + (i.sta?('   STA '+i.sta+'Z'):'') +
+    (i.ft?('   F/T '+i.ft):'') +
+    '   ·   PRINTED ' + d.toISOString().slice(0,10) + ' ' +
+    String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinutes()).padStart(2,'0') + 'Z' +
+    ($('#reflow').checked ? '   ·   ETO REVISED FROM LATEST ATO' : '');
+  STATE.wps.forEach((w,i)=>{
+    ['ato','alt_in','rmg','sat','spot'].forEach(f=>{
+      const el = document.getElementById('pv'+(f==='alt_in'?'alt':f)+i);
+      if(el) el.textContent = w[f] || '';
+    });
+  });
+}
+window.addEventListener('beforeprint', preparePrint);
+$('#btnPrint').onclick = ()=>{
+  if(!STATE.wps.length){ setStatus('先にプランを読み込んでください','err'); return; }
+  preparePrint();
+  window.print();   /* 印刷ダイアログで「PDFとして保存」を選択 */
+};
+function applyTheme(mode){
+  document.documentElement.setAttribute('data-theme', mode);
+  $('#btnTheme').textContent = mode==='day' ? '☾' : '☀︎';
+  const mt = document.querySelector('meta[name="theme-color"]');
+  if(mt) mt.setAttribute('content', mode==='day' ? '#ffffff' : '#151d27');
+}
+$('#btnTheme').onclick = ()=>{
+  const day = document.documentElement.getAttribute('data-theme')==='day';
+  applyTheme(day ? 'night' : 'day');
+  savePrefs();
+};
+
+/* drag & drop */
+const drop = $('#drop');
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('hot');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('hot');}));
+drop.addEventListener('drop', e=> handleFile(e.dataTransfer.files[0]));
+
+/* UTC clock + sticky offset */
+function tick(){
+  const d = new Date();
+  $('#utc').textContent = 'UTC ' + String(d.getUTCHours()).padStart(2,'0')+':'+
+                          String(d.getUTCMinutes()).padStart(2,'0')+':'+String(d.getUTCSeconds()).padStart(2,'0');
+  document.documentElement.style.setProperty('--hdrH', $('#topbar').offsetHeight+'px');
+}
+tick(); setInterval(tick, 1000);
+
+/* =======================================================================
+   OFFLINE SUPPORT
+   1) Service Worker で index.html / pdf.js / アイコンを丸ごとキャッシュ
+      → ホーム画面から Wi-Fi 無しで起動できる
+   2) 記入内容を localStorage に自動保存
+      → 機内でアプリが落ちても、再起動で書きかけの ATO / RMG が戻る
+   3) 通信状態とキャッシュ状態をヘッダーにバッジ表示
+   ======================================================================= */
+const LS_SESSION = 'navlog.session.v1';
+const LS_PREFS   = 'navlog.prefs.v1';
+const LS_HINT    = 'navlog.a2hs.hint.v1';
+
+/* ---- toast ----------------------------------------------------------- */
+let toastTimer = null;
+function toast(msg, opt){
+  const box = $('#toast'), btn = $('#toastBtn');
+  if(!box) return;
+  opt = opt || {};
+  $('#toastMsg').textContent = msg;
+  if(opt.label){
+    btn.hidden = false; btn.textContent = opt.label;
+    btn.onclick = ()=>{ hideToast(); if(opt.action) opt.action(); };
+  }else{
+    btn.hidden = true; btn.onclick = null;
+  }
+  box.classList.add('on');
+  clearTimeout(toastTimer);
+  if(opt.ms !== 0) toastTimer = setTimeout(hideToast, opt.ms || 6000);
+}
+function hideToast(){ clearTimeout(toastTimer); $('#toast').classList.remove('on'); }
+
+/* ---- preferences (theme) -------------------------------------------- */
+function savePrefs(){
+  try{
+    localStorage.setItem(LS_PREFS, JSON.stringify({
+      theme: document.documentElement.getAttribute('data-theme') || 'night'
+    }));
+  }catch(e){ /* プライベートブラウズなどでは保存できない */ }
+}
+function restorePrefs(){
+  let p = null;
+  try{ p = JSON.parse(localStorage.getItem(LS_PREFS) || 'null'); }catch(e){}
+  applyTheme(p && p.theme === 'day' ? 'day' : 'night');
+}
+
+/* ---- session autosave / restore ------------------------------------- */
+function saveSession(){
+  if(!STATE.wps.length) return;
+  try{
+    localStorage.setItem(LS_SESSION, JSON.stringify({
+      v: 1,
+      savedAt: new Date().toISOString(),
+      toff: $('#toff').value,
+      reflow: $('#reflow').checked,
+      info: STATE.info,
+      wps: STATE.wps
+    }));
+  }catch(e){ console.warn('セッションを保存できませんでした', e); }
+}
+let saveTimer = null;
+function scheduleSave(){ clearTimeout(saveTimer); saveTimer = setTimeout(saveSession, 400); }
+function flushSave(){ clearTimeout(saveTimer); saveSession(); }
+function clearSession(){ try{ localStorage.removeItem(LS_SESSION); }catch(e){} }
+function restoreSession(){
+  let d = null;
+  try{ d = JSON.parse(localStorage.getItem(LS_SESSION) || 'null'); }catch(e){}
+  if(!d || !Array.isArray(d.wps) || !d.wps.length) return false;
+  const savedAt = d.savedAt ? new Date(d.savedAt) : null;
+  if(d.toff) $('#toff').value = d.toff;
+  $('#reflow').checked = !!d.reflow;
+  load({info: d.info || {}, wps: d.wps});
+  toast('前回の作業を復元しました' + (savedAt && !isNaN(savedAt) ?
+        '（' + String(savedAt.getUTCHours()).padStart(2,'0') + ':' +
+        String(savedAt.getUTCMinutes()).padStart(2,'0') + 'Z 保存）' : ''),
+        {label:'破棄', ms:8000, action:()=>{ clearSession(); location.reload(); }});
+  return true;
+}
+/* アプリが落ちる / 裏に回る直前に確実に書き出す（iOS は容赦なく終了させる） */
+window.addEventListener('pagehide', flushSave);
+window.addEventListener('beforeunload', flushSave);
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushSave(); });
+
+/* ---- network + cache badge ------------------------------------------ */
+const SW_OK = ('serviceWorker' in navigator) && location.protocol !== 'file:';
+function updNetBadge(){
+  const el = $('#netstate');
+  if(!el) return;
+  const controlled = SW_OK && !!navigator.serviceWorker.controller;
+  if(!navigator.onLine){
+    el.textContent = 'OFFLINE';
+    el.className = 'badge offline';
+    el.title = controlled ? 'オフラインで動作中（キャッシュから起動）'
+                          : 'オフラインです（キャッシュ未完了の可能性があります）';
+  }else if(controlled){
+    el.textContent = 'OFFLINE OK';
+    el.className = 'badge ready';
+    el.title = 'キャッシュ済み — ホーム画面から Wi-Fi 無しで起動できます';
+  }else if(SW_OK){
+    el.textContent = 'CACHE …';
+    el.className = 'badge wait';
+    el.title = 'オフライン用のキャッシュを準備しています';
+  }else{
+    el.textContent = 'LOCAL';
+    el.className = 'badge';
+    el.title = 'Service Worker が使えません（file:// で開いている、または非対応）';
+  }
+}
+window.addEventListener('online',  updNetBadge);
+window.addEventListener('offline', updNetBadge);
+
+/* ---- service worker ------------------------------------------------- */
+function isStandalone(){
+  return navigator.standalone === true ||
+         (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+}
+function a2hsHint(){
+  if(isStandalone()) return;
+  try{ if(localStorage.getItem(LS_HINT)) return; }catch(e){ return; }
+  toast('オフラインで使うには 共有 → 「ホーム画面に追加」', {label:'OK', ms:12000,
+    action:()=>{ try{ localStorage.setItem(LS_HINT,'1'); }catch(e){} }});
+}
+if(SW_OK){
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    updNetBadge();
+    if(hadController && !reloading){ reloading = true; flushSave(); location.reload(); }
+    else if(!hadController) setTimeout(a2hsHint, 1200);
+  });
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js', {scope:'./'}).then(reg=>{
+      const offerUpdate = sw => toast('新しいバージョンがあります', {label:'更新', ms:0,
+        action:()=>{ flushSave(); sw.postMessage({type:'SKIP_WAITING'}); }});
+      if(reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
+      reg.addEventListener('updatefound', ()=>{
+        const sw = reg.installing;
+        if(!sw) return;
+        sw.addEventListener('statechange', ()=>{
+          if(sw.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(sw);
+        });
+      });
+      /* 前面に戻ったときだけ更新確認（オフライン中は何もしない） */
+      document.addEventListener('visibilitychange', ()=>{
+        if(!document.hidden && navigator.onLine) reg.update().catch(()=>{});
+      });
+      updNetBadge();
+      if(navigator.serviceWorker.controller) setTimeout(a2hsHint, 1500);
+    }).catch(err=>{
+      console.warn('Service Worker を登録できませんでした', err);
+      updNetBadge();
+    });
+  });
+}
+
+/* ---- boot ------------------------------------------------------------ */
+restorePrefs();
+updNetBadge();
+if(!restoreSession()) setStatus('');
+
+/* ---- embedded sample: ANA0159 KJFK-RJTT ---- */
+const SAMPLE = `FLIGHT
+KJFK - RJTT
+ANA0159 B/T 14HR0MIN
+JA785A STD 0600/18Z - STA 2000/18Z F/T 13HR27MIN
+PIC C3/Y.SANO PLN READY
+PLN CD RTE ALT SPEED EXT ALTN T/O ALTN
+50 B26C FL300/320/340/360 80 00+40 RJBB
+ETOPS ALTN DEP SPOT/RWY ARR SPOT/RWY PRV-FLT EDCT
+CYYZ/PANC/RJCC #5 #072 22/23 ANA0160 02:31/18Z
+NAVLOG
+NAVIGATION LOG
+JDP:PN005606 COMPUTED 0139Z JA785A NH7E 80/F 18JUL26
+ANA0159/50/18 KJFK-RJTT RJBB/ STD 0600Z/0200L STA 2000Z/0500L
+ETOPS/207 PLAN B/T 14HR00MIN F/T 13HR27MIN
+SS14:37/041T SR10:05/039T
+EDCT:
+COMPANY CLEARANCE
+-FUEL PLAN
+TIME FUEL TIME FUEL TIME FUEL
+BOF RJTT 13/27 253600 RJTT 00/00 000000 CPT 09/36 195500
+CON 00/33 007600 00/00 000000
+RSV 00/30 006800 00/00 000000 RSV 011500
+ALT RJBB 01/12 020600 00/00 000000 DIV 04/06 066600
+TAX 001500 000000 TXI 001500
+REQ 15/42 290100 00/00 000000 CRIT F 275100
+PCF 00/12 002900 00/00 000000
+EXT 00/40 009300 00/00 000000 CPT N50414E173432 4383NM
+FOB 16/34 302300 00/00 000000 -PANC/1373NM -RJCC/1412NM
+FOD=047200LB TKOF ALTN ....
+FL SPD DIST ROUTE
+KJFK-RJTT S/C 80 6212NM B26C/YRL IGSOM OMSUN TIEKL ELLAM, T
+HEN UPR
+RJTT-RJBB F280 LRC 0465NM A62 /OPPAR JYOGA Y566 LAXAS Y56 TOH
+ME Y54/Y12/Y43.CANDY
+RJTT- F000 0000NM /
+CPT -PANC F100 LRC 1373NM /
+CPT -RJCC F100 LRC 1412NM /
+STEP CLIMB 300/ULUTO 320/IGSOM 340/CHIPT 360/
+W/F M023 MXSH 07/TIEKL MINTMP M51/ELLAM PROG 1718UK
+NAVIGATION LOG
+KJFK ELEV 0013FT (ISA DEV)
+TC GS CTME LAT/LONG ETO ZTME ALT FUEL TMP ZWIND MW/TP
+MC TAS RTME (WP)POS ATO DIST FL RMG SAT SPOT WSCP
+KJFK (RDIS) 300.8
+330 .. 00.15 N41244W074214 . 0.15 CLM 288.5 .. .. . ..
+343 .. 13.12 GAYEL . 083 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(6129) - - - - - - - - - - - - -
+300 .. 00.15 N41249W074226 . 0.00 CLM 288.4 .. .. . ..
+312 .. 13.12 -KZBW . 001 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(6128) - - - - - - - - - - - - -
+300 .. 00.16 N41270W074275 . 0.01 CLM 288.1 .. .. . ..
+312 .. 13.11 -KZNY . 004 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(6124) - - - - - - - - - - - - -
+300 .. 00.17 N41295W074332 . 0.01 CLM 287.7 .. .. . ..
+312 .. 13.10 MSLIN . 005 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(6119) - - - - - - - - - - - - -
+300 .. 00.18 N41358W074478 . 0.01 CLM 286.6 .. .. . ..
+312 .. 13.09 STOMP . 013 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(6106) - - - - - - - - - - - - -
+299 .. 00.20 N41420W075030 . 0.02 30000 285.6 .. .. . ..
+312 .. 13.07 TOC . 013 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(6093) - - - - - ( 11) - - - - -
+299 449 00.24 N41565W075368 . 0.04 30000 284.1 -33 298055 38/42
+312 504 13.03 BUFFY . 029 FL R - / 02
+- - - - - - - - - - - - - - - - -(6064) - - - - - ( 11) - - - - -
+299 447 00.28 N42094W076082 . 0.04 30000 282.7 -33 299057 38/41
+310 504 12.59 CFB . 027 FL R - / 02
+- - - - - - - - - - - - - - - - -(6037) - - - - - ( 11) - - - - -
+293 446 00.33 N42264W077016 . 0.05 30000 280.6 -33 298058 38/40
+304 504 12.54 VIEEW . 043 FL R - / 03
+- - - - - - - - - - - - - - - - -(5994) - - - - - ( 11) - - - - -
+292 445 00.38 N42396W077447 . 0.05 30000 278.8 -33 294059 38/39
+304 504 12.49 KELIE . 035 FL R - / 03
+- - - - - - - - - - - - - - - - -(5959) - - - - - ( 11) - - - - -
+290 447 00.44 N42560W078443 . 0.06 30000 276.5 -33 290057 37/42
+301 504 12.43 WOZEE . 047 FL R - / 03
+- - - - - - - - - - - - - - - - -(5912) - - - - - ( 12) - - - - -
+308 450 00.47 N43061W079021 . 0.03 30000 275.7 -32 288058 37/42
+318 505 12.40 HOZIR . 016 FL R - / 02
+- - - - - - - - - - - - - - - - -(5896) - - - - - ( 12) - - - - -
+315 453 00.47 N43074W079039 . 0.00 30000 275.6 -32 288058 38/41
+325 505 12.40 CFSKX . 002 FL R - / 02
+- - - - - - - - - - - - - - - - -(5894) - - - - - ( 12) - - - - -
+309 450 00.47 N43077W079044 . 0.00 30000 275.6 -32 288058 38/41
+320 505 12.40 PIKSA . 001 FL R - / 02
+- - - - - - - - - - - - - - - - -(5893) - - - - - ( 11) - - - - -
+314 449 00.55 N43478W080009 . 0.08 30000 272.7 -33 286061 38/40
+324 504 12.32 PEPLA . 057 FL R - / 02
+- - - - - - - - - - - - - - - - -(5836) - - - - - ( 11) - - - - -
+313 448 01.05 N44400W081178 . 0.10 30000 269.0 -33 287061 39/40
+323 504 12.22 DUTEL . 076 FL R - / 02
+- - - - - - - - - - - - - - - - -(5760) - - - - - ( 11) - - - - -
+313 444 01.14 N45238W082252 . 0.09 30000 265.8 -33 290064 40/40
+321 504 12.13 MUSIT . 065 FL R - / 01
+- - - - - - - - - - - - - - - - -(5695) - - - - - ( 11) - - - - -
+308 444 01.21 N45581W083277 . 0.07 30000 263.1 -33 286064 40/41
+316 504 12.06 CFPWF . 056 FL R - / 03
+- - - - - - - - - - - - - - - - -(5639) - - - - - ( 10) - - - - -
+307 446 01.23 N46065W083435 . 0.02 30000 262.4 -34 283062 40/41
+315 503 12.04 CFRCC . 014 FL R - / 01
+- - - - - - - - - - - - - - - - -(5625) - - - - - ( 10) - - - - -
+307 446 01.26 N46183W084057 . 0.03 30000 261.5 -34 281063 40/41
+315 503 12.01 ULUTO . 019 FL R - / 01
+- - - - - - - - - - - - - - - - -(5606) - - - - - - - - - - - - -
+302 .. 01.26 N46189W084071 . 0.00 CLM 261.4 .. .. . ..
+309 .. 12.01 CFNBP . 001 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(5605) - - - - - ( 9) - - - - -
+305 442 01.27 N46247W084189 . 0.01 32000 260.6 -39 278066 39/41
+311 501 12.00 SSM . 010 FL R - / 00
+- - - - - - - - - - - - - - - - -(5595) - - - - - ( 8) - - - - -
+298 418 01.28 N46280W084271 . 0.01 32000 260.3 -40 285081 35/40
+302 497 11.59 -CZYZ . 006 FL R - / 00
+- - - - - - - - - - - - - - - - -(5589) - - - - - ( 8) - - - - -
+298 418 01.29 N46327W084393 . 0.01 32000 259.8 -40 285081 35/40
+302 497 11.58 -KZMP . 010 FL R - / 00
+- - - - - - - - - - - - - - - - -(5579) - - - - - ( 8) - - - - -
+298 418 01.51 N47466W088008 . 0.22 32000 251.7 -40 285081 35/40
+302 497 11.36 EEP1 . 156 FL R - / 00
+- - - - - - - - - - - - - - - - -(5423) - - - - - ( 8) - - - - -
+298 418 01.58 N48071W089015 . 0.07 32000 249.4 -40 285081 35/40
+302 497 11.29 -CZWG . 045 FL R - / 00
+- - - - - - - - - - - - - - - - -(5378) - - - - - ( 8) - - - - -
+298 418 02.01 N48152W089262 . 0.03 32000 248.4 -40 285081 35/40
+302 497 11.26 AGLIN . 019 FL R - / 00
+- - - - - - - - - - - - - - - - -(5359) - - - - - ( 6) - - - - -
+319 432 02.21 N50068W091543 . 0.20 32000 241.1 -42 311063 36/36
+322 494 11.06 OMVEG . 148 FL R - / 03
+- - - - - - - - - - - - - - - - -(5211) - - - - - ( 5) - - - - -
+310 443 02.26 N50280W092339 . 0.05 32000 239.6 -43 324051 35/36
+311 493 11.01 RIONA . 033 FL R - / 03
+- - - - - - - - - - - - - - - - -(5178) - - - - - ( 5) - - - - -
+309 445 02.34 N51043W093457 . 0.08 32000 236.9 -43 326050 36/36
+309 493 10.53 YRL . 058 FL R - / 03
+- - - - - - - - - - - - - - - - -(5120) - - - - - ( 5) - - - - -
+308 444 03.13 N54000W100000 . 0.39 32000 223.6 -43 321050 37/38
+305 493 10.14 54N00 . 288 FL R - / 04
+- - - - - - - - - - - - - - - - -(4832) - - - - - ( 5) - - - - -
+305 448 03.44 N56236W105287 . 0.31 32000 213.1 -43 287047 37/37
+297 493 09.43 -CZEG . 236 FL R - / 04
+- - - - - - - - - - - - - - - - -(4596) - - - - - ( 5) - - - - -
+305 448 03.59 N57276W108198 . 0.15 32000 208.1 -43 287047 37/37
+297 493 09.28 ETP1 . 113 FL R - / 04
+- - - - - - - - - - - - - - - - -(4483) - - - - - ( 5) - - - - -
+305 448 04.08 N58000W110000 . 0.09 32000 205.3 -43 287047 37/37
+297 493 09.19 58N10 . 064 FL R - / 04
+- - - - - - - - - - - - - - - - -(4419) - - - - - ( 4) - - - - -
+291 468 04.51 N60000W120000 . 0.43 32000 191.6 -44 251031 36/37
+276 492 08.36 60N20 . 332 FL R - / 01
+- - - - - - - - - - - - - - - - -(4087) - - - - - ( 3) - - - - -
+281 488 05.28 N61000W130000 . 0.37 32000 179.9 -45 198020 37/37
+263 491 07.59 61N30 . 302 FL R - / 00
+- - - - - - - - - - - - - - - - -(3785) - - - - - ( 5) - - - - -
+275 496 05.46 N61174W135159 . 0.18 32000 174.0 -43 179063 31/36
+256 493 07.41 EXP1 . 154 FL R - / 02
+- - - - - - - - - - - - - - - - -(3631) - - - - - ( 5) - - - - -
+275 496 05.59 N61222W139024 . 0.13 32000 169.9 -43 179063 31/36
+256 493 07.28 IGSOM . 109 FL R - / 02
+- - - - - - - - - - - - - - - - -(3522) - - - - - ( 8) - - - - -
+268 463 06.07 N61202W141000 . 0.08 34000 167.3 -44 266029 30/31
+251 492 07.20 OMSUN . 057 FL R - / 06
+- - - - - - - - - - - - - - - - -(3465) - - - - - ( 2) - - - - -
+272 430 06.23 N61236W145035 . 0.16 34000 162.3 -50 275056 31/34
+255 486 07.04 TIEKL . 117 FL R - / 07
+- - - - - - - - - - - - - - - - -(3348) - - - - - ( 1) - - - - -
+270 423 06.41 N61227W149203 . 0.18 34000 157.0 -51 261063 32/35
+255 485 06.46 ELLAM . 124 FL R - / 07
+- - - - - - - - - - - - - - - - -(3224) - - - - - ( 2) - - - - -
+235 419 06.44 N61101W149576 . 0.03 34000 156.0 -50 251069 32/34
+219 486 06.43 TED . 022 FL R - / 06
+- - - - - - - - - - - - - - - - -(3202) - - - - - ( 1) - - - - -
+247 414 06.49 N60566W151027 . 0.05 34000 154.6 -51 245071 33/34
+231 485 06.38 GASTO . 034 FL R - / 05
+- - - - - - - - - - - - - - - - -(3168) - - - - - ( 2) - - - - -
+246 414 06.50 N60524W151224 . 0.01 34000 154.1 -50 241073 33/35
+233 487 06.37 AMOTT . 010 FL R - / 04
+- - - - - - - - - - - - - - - - -(3158) - - - - - ( 1) - - - - -
+245 411 07.02 N60193W153480 . 0.12 34000 150.7 -51 234076 33/35
+232 486 06.25 NONDA . 079 FL R - / 04
+- - - - - - - - - - - - - - - - -(3079) - - - - - ( 2) - - - - -
+242 411 07.10 N59519W155327 . 0.08 34000 148.1 -50 221080 33/34
+230 487 06.17 FAGIN . 059 FL R - / 04
+- - - - - - - - - - - - - - - - -(3020) - - - - - ( 3) - - - - -
+241 417 07.16 N59346W156350 . 0.06 34000 146.6 -49 214078 33/34
+230 488 06.11 SAHOK . 036 FL R - / 05
+- - - - - - - - - - - - - - - - -(2984) - - - - - ( 4) - - - - -
+240 425 07.22 N59125W157509 . 0.06 34000 144.7 -48 211072 32/33
+229 489 06.05 KOWOK . 045 FL R - / 07
+- - - - - - - - - - - - - - - - -(2939) - - - - - ( 4) - - - - -
+239 430 07.25 N58597W158331 . 0.03 34000 143.7 -48 208067 32/33
+227 489 06.02 DLG . 025 FL R - / 07
+- - - - - - - - - - - - - - - - -(2914) - - - - - ( 7) - - - - -
+260 467 07.40 N58394W162044 . 0.15 34000 139.4 -45 200045 31/32
+246 491 05.47 EHM . 112 FL R - / 04
+- - - - - - - - - - - - - - - - -(2802) - - - - - ( 13) - - - - -
+251 498 07.44 N58311W162595 . 0.04 34000 138.3 -39 348004 26/30
+240 498 05.43 EEP2 . 030 FL R - / 02
+- - - - - - - - - - - - - - - - -(2772) - - - - - ( 13) - - - - -
+251 498 08.13 N57094W170140 . 0.29 34000 129.4 -39 348004 26/30
+240 498 05.14 SPY . 246 FL R - / 02
+- - - - - - - - - - - - - - - - -(2526) - - - - - ( 11) - - - - -
+229 518 08.50 N53387W177155 . 0.37 34000 118.6 -41 341075 30/30
+222 495 04.37 CURVS . 320 FL R - / 03
+- - - - - - - - - - - - - - - - -(2206) - - - - - ( 8) - - - - -
+243 488 09.19 N51533E177062 . 0.29 34000 110.5 -44 336094 38/39
+241 492 04.08 CHIKI . 231 FL R - / 03
+- - - - - - - - - - - - - - - - -(1975) - - - - - ( 10) - - - - -
+240 493 09.28 N51153E175204 . 0.09 34000 107.8 -42 334077 38/45
+240 494 03.59 CHIPT . 076 FL R - / 04
+- - - - - - - - - - - - - - - - -(1899) - - - - - ( 10) - - - - -
+239 490 09.31 N51016E174413 . 0.03 36000 106.8 -46 331037 40/45
+240 490 03.56 -PAZA . 028 FL R - / 02
+- - - - - - - - - - - - - - - - -(1871) - - - - - ( 10) - - - - -
+239 490 09.36 N50414E173432 . 0.05 36000 105.3 -46 331037 40/45
+240 490 03.51 ETP2 . 042 FL R - / 02
+- - - - - - - - - - - - - - - - -(1829) - - - - - ( 10) - - - - -
+239 490 10.04 N48405E168470 . 0.28 36000 097.3 -46 331037 40/45
+240 490 03.23 CARTO . 227 FL R - / 02
+- - - - - - - - - - - - - - - - -(1602) - - - - - ( 10) - - - - -
+243 488 10.41 N46249E162186 . 0.37 36000 087.3 -46 166009 41/43
+246 490 02.46 CUTEE . 296 FL R - / 01
+- - - - - - - - - - - - - - - - -(1306) - - - - - ( 8) - - - - -
+234 479 11.25 N42589E155401 . 0.44 36000 075.5 -48 185013 39/39
+239 488 02.02 KALIG . 351 FL R - / 01
+- - - - - - - - - - - - - - - - -(0955) - - - - - ( 12) - - - - -
+229 535 12.04 N39092E149495 . 0.39 36000 065.0 -44 360069 40/47
+235 492 01.23 KALNA . 351 FL R - / 06
+- - - - - - - - - - - - - - - - -(0604) - - - - - ( 13) - - - - -
+239 501 12.07 N38578E149239 . 0.03 36000 064.3 -43 340046 41/50
+246 494 01.20 EXP2 . 023 FL R - / 05
+- - - - - - - - - - - - - - - - -(0581) - - - - - ( 13) - - - - -
+239 501 12.31 N37118E145400 . 0.24 36000 057.8 -43 340046 41/50
+246 494 00.56 ADNAP . 206 FL R - / 05
+- - - - - - - - - - - - - - - - -(0375) - - - - - ( 14) - - - - -
+248 491 12.56 N35566E141459 . 0.25 36000 051.2 -42 331027 41/50
+256 495 00.31 LALID . 203 FL R - / 03
+- - - - - - - - - - - - - - - - -(0172) - - - - - ( 14) - - - - -
+255 489 13.01 N35462E141000 . 0.05 36000 050.0 -42 317012 49/49
+262 495 00.26 TOD . 039 FL R - / 02
+- - - - - - - - - - - - - - - - -(0133) - - - - - - - - - - - - -
+255 .. 13.02 N35436E140480 . 0.01 DEC 049.8 .. .. . ..
+262 .. 00.25 INUBO . 010 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(0123) - - - - - - - - - - - - -
+213 .. 13.08 N35110E140222 . 0.06 DEC 049.6 .. .. . ..
+221 .. 00.19 MESSE . 039 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(0084) - - - - - - - - - - - - -
+239 .. 13.12 N34568E139537 . 0.04 DEC 049.4 .. .. . ..
+246 .. 00.15 UTIBO . 027 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(0057) - - - - - - - - - - - - -
+345 .. 13.15 N35123E139488 . 0.03 DEC 049.2 .. .. . ..
+353 .. 00.12 UMUKI . 016 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(0041) - - - - - - - - - - - - -
+346 .. 13.17 N35190E139467 . 0.02 DEC 049.1 .. .. . ..
+353 .. 00.10 KAIHO . 007 FL R .. .. . ..
+- - - - - - - - - - - - - - - - -(0034) - - - - - - - - - - - - -
+001 .. 13.27 N35332E139469 . 0.10 047.2 .. .. . ..
+009 .. 00.00 RJTT . 034 FL R .. .. . ..
+ELEV 0021FT (0000)`;
+</script>
+
+
+</body>
+</html>
