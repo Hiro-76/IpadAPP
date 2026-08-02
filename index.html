@@ -25,7 +25,7 @@
   --ink:#ffc247;         /* pilot write-in (amber) */
   --ok:#5fd48a;
   --late:#ff7b6b;
-  --eep:#c78bff;         /* ETOPS entry point (EEP) — 目立たせる */
+  --etp:#c78bff;         /* equal time point (ETP) — 目立たせる */
   --text:#dbe7f3;
   --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.35);
 }
@@ -38,7 +38,7 @@ html[data-theme="day"]{
   --ink:#a05a00;
   --ok:#1f7a45;
   --late:#c0392b;
-  --eep:#7314c4;
+  --etp:#7314c4;
   --text:#16202b;
   --shadow:0 1px 0 rgba(0,0,0,.02), 0 6px 18px rgba(20,40,60,.10);
 }
@@ -146,8 +146,8 @@ header{
 .strip.flagged{border-color:var(--ink)}
 .strip.milestone{background:var(--panel2)}
 /* EEP（ETOPS ENTRY POINT）は一目で分かるよう名前を白以外にする */
-.strip.eep .wp .name{color:var(--eep)}
-.strip.eep{border-color:var(--eep)}
+.strip.etp .wp .name{color:var(--etp)}
+.strip.etp{border-color:var(--etp)}
 
 .wp{display:flex;flex-direction:column;gap:2px;min-width:0}
 .wp .name{font-size:19px;font-weight:700;letter-spacing:.1em;line-height:1.1;overflow:hidden;text-overflow:ellipsis}
@@ -223,7 +223,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
 @media print{
   @page{size:A4 landscape;margin:8mm 10mm}
   body{max-width:none;margin:0;padding:0}
-  html[data-theme]{--bg:#fff;--panel:#fff;--panel2:#fff;--rule:#999;--plan:#000;--ink:#000;--text:#000;--ok:#000;--late:#000;--eep:#000}
+  html[data-theme]{--bg:#fff;--panel:#fff;--panel2:#fff;--rule:#999;--plan:#000;--ink:#000;--text:#000;--ok:#000;--late:#000;--etp:#000}
   body{background:#fff;color:#000;font-size:8pt}
   header,#loader,.now,.btn,.legend,#toast{display:none!important}
   #printHead{display:block;border-bottom:1.5px solid #000;padding-bottom:4px;margin-bottom:6px}
@@ -584,9 +584,9 @@ function cell(k,v,extra){
 function stripHTML(w){
   const i = w.seq-1;
   const milestone = /^(TOC|TOD|ETP\d?|EEP\d?|EXP\d?)$/.test(w.name);
-  const isEEP     = /^EEP\d?$/.test(w.name);
+  const isETP     = /^ETP\d?$/.test(w.name);
   return `
-  <div class="strip${milestone?' milestone':''}${isEEP?' eep':''}" id="s${i}">
+  <div class="strip${milestone?' milestone':''}${isETP?' etp':''}" id="s${i}">
     <div class="wp">
       <span class="name"><span class="seq">${String(w.seq).padStart(2,'0')}</span>${esc(w.name)}</span>
       <span class="pos">${esc(w.pos)}</span>
