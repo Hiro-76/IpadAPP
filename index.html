@@ -25,6 +25,7 @@
   --ink:#ffc247;         /* pilot write-in (amber) */
   --ok:#5fd48a;
   --late:#ff7b6b;
+  --eep:#c78bff;         /* ETOPS entry point (EEP) — 目立たせる */
   --text:#dbe7f3;
   --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.35);
 }
@@ -37,6 +38,7 @@ html[data-theme="day"]{
   --ink:#a05a00;
   --ok:#1f7a45;
   --late:#c0392b;
+  --eep:#7314c4;
   --text:#16202b;
   --shadow:0 1px 0 rgba(0,0,0,.02), 0 6px 18px rgba(20,40,60,.10);
 }
@@ -143,6 +145,9 @@ header{
 }
 .strip.flagged{border-color:var(--ink)}
 .strip.milestone{background:var(--panel2)}
+/* EEP（ETOPS ENTRY POINT）は一目で分かるよう名前を白以外にする */
+.strip.eep .wp .name{color:var(--eep)}
+.strip.eep{border-color:var(--eep)}
 
 .wp{display:flex;flex-direction:column;gap:2px;min-width:0}
 .wp .name{font-size:19px;font-weight:700;letter-spacing:.1em;line-height:1.1;overflow:hidden;text-overflow:ellipsis}
@@ -181,6 +186,10 @@ html[data-theme="day"] .slot input[data-f="ato"]:not(:placeholder-shown){
 .slot .eto .day{font-size:11px;vertical-align:super;opacity:.7}
 .eto_input{border-style:dotted !important}
 .eto_input::placeholder{color:var(--plan);opacity:.3;font-weight:400;font-size:16px}
+/* 手入力で基準にした ETO は一目で分かるように */
+.eto_input.manual{border-style:solid !important;border-color:var(--ink);
+  background:rgba(255,194,71,.12)}
+html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
 .slot input:focus{border-color:var(--ink);background:var(--panel)}
 .pv{display:none}
 .now{
@@ -214,7 +223,7 @@ html[data-theme="day"] .slot input[data-f="ato"]:not(:placeholder-shown){
 @media print{
   @page{size:A4 landscape;margin:8mm 10mm}
   body{max-width:none;margin:0;padding:0}
-  html[data-theme]{--bg:#fff;--panel:#fff;--panel2:#fff;--rule:#999;--plan:#000;--ink:#000;--text:#000;--ok:#000;--late:#000}
+  html[data-theme]{--bg:#fff;--panel:#fff;--panel2:#fff;--rule:#999;--plan:#000;--ink:#000;--text:#000;--ok:#000;--late:#000;--eep:#000}
   body{background:#fff;color:#000;font-size:8pt}
   header,#loader,.now,.btn,.legend,#toast{display:none!important}
   #printHead{display:block;border-bottom:1.5px solid #000;padding-bottom:4px;margin-bottom:6px}
@@ -345,6 +354,24 @@ function fuelVal(s){
   return n/1000;
 }
 function fmtFuelDiff(d){ return (d>0?'+':(d<0?'-':'')) + Math.abs(d).toFixed(1); }
+
+/* ---- wind / SAT の書式 ------------------------------------------------ */
+/* 風は数字だけ入力してもらい、先頭 3 桁を風向として "/" を挿入する。
+   24030 -> 240/30 ,  040135 -> 040/135 ,  途中入力 2403 -> 240/3        */
+function fmtWind(s){
+  const d = String(s==null?'':s).replace(/\D/g,'').slice(0,6);
+  return d.length > 3 ? d.slice(0,3) + '/' + d.slice(3) : d;
+}
+/* SAT は数字のみの入力を氷点下として扱う（45 -> -45）。
+   プラス値が必要なときだけ +15 のように符号を付けて入力する。          */
+function fmtSat(s){
+  const t = String(s==null?'':s).trim().replace(/[−–—]/g,'-').replace(/\s/g,'');
+  if(t === '' || t === '-' || t === '+') return t === '' ? '' : t;
+  let m;
+  if((m = /^\+(\d{1,3})$/.exec(t)))     return +m[1] === 0 ? '0' : '+' + String(+m[1]);
+  if((m = /^-?(\d{1,3})$/.exec(t)))     return +m[1] === 0 ? '0' : '-' + String(+m[1]);  /* 符号なし = マイナス */
+  return t;                                                          /* それ以外は触らない */
+}
 
 /* ---- navigation log parser ------------------------------------------ */
 const RE_A = /^(\d{3})\s+(\d{3}|\.\.)\s+(\d{1,2}\.\d{2})\s+([NS]\d+[EW]\d+)\s*(.*)$/;
@@ -527,6 +554,8 @@ function render(){
   host.querySelectorAll('input[data-f]').forEach(inp=>{
     inp.addEventListener('input', onEntry);
     inp.addEventListener('blur', onBlur);
+    /* Enter / 完了 で確定（blur と同じ処理を通す） */
+    inp.addEventListener('keydown', ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); inp.blur(); } });
     // JSON読み込み時など、初期値がある場合は色を適用
     if(inp.dataset.f==='ato' && inp.value){
       inp.dispatchEvent(new Event('input', {bubbles:true}));
@@ -551,8 +580,9 @@ function cell(k,v,extra){
 function stripHTML(w){
   const i = w.seq-1;
   const milestone = /^(TOC|TOD|ETP\d?|EEP\d?|EXP\d?)$/.test(w.name);
+  const isEEP     = /^EEP\d?$/.test(w.name);
   return `
-  <div class="strip${milestone?' milestone':''}" id="s${i}">
+  <div class="strip${milestone?' milestone':''}${isEEP?' eep':''}" id="s${i}">
     <div class="wp">
       <span class="name"><span class="seq">${String(w.seq).padStart(2,'0')}</span>${esc(w.name)}</span>
       <span class="pos">${esc(w.pos)}</span>
@@ -566,12 +596,12 @@ function stripHTML(w){
       ${cell('ALT', w.alt)}
       ${cell('FUEL', w.fuel)}
       ${cell('TMP', w.tmp)}
-      ${cell('WIND', w.wind)}
+      ${cell('WIND', fmtWind(w.wind))}
       ${cell('MW/TP', w.mwtp)}
     </div>
     <div class="entry">
       <div class="slot"><span class="k">ETO</span>
-        <input data-f="eto" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="--:--" autocomplete="off" value="" class="eto_input" title="手入力するとそこを基準に以降が再計算されます">
+        <input data-f="eto" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="--:--" autocomplete="off" value="" class="eto_input" title="手入力（4桁）するとそこを基準に以降が再計算されます。空にすると自動計算に戻ります">
         <div class="delta" id="dlt${i}"></div></div>
       <div class="slot"><span class="k">ATO</span>
         <input data-f="ato" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="----" autocomplete="off" value="${esc(w.ato)}">
@@ -585,10 +615,12 @@ function stripHTML(w){
         <span class="pv" id="pvrmg${i}"></span>
         <div class="delta" id="fdl${i}"></div></div>
       <div class="slot"><span class="k">SAT</span>
-        <input data-f="sat" data-i="${i}" inputmode="text" maxlength="5" placeholder="---" autocomplete="off" value="${esc(w.sat)}">
+        <input data-f="sat" data-i="${i}" inputmode="text" maxlength="5" placeholder="---" autocomplete="off" value="${esc(w.sat)}"
+               title="数字だけ入れるとマイナスになります（45 → -45）。プラス値は +15 のように符号を付けてください">
         <span class="pv" id="pvsat${i}"></span></div>
       <div class="slot"><span class="k">SPOT WND</span>
-        <input data-f="spot" data-i="${i}" inputmode="text" maxlength="7" placeholder="------" autocomplete="off" value="${esc(w.spot)}">
+        <input data-f="spot" data-i="${i}" inputmode="text" maxlength="7" placeholder="---/--" autocomplete="off" value="${esc(w.spot)}"
+               title="数字だけ入れると自動で / が入ります（24030 → 240/30、040135 → 040/135）">
         <span class="pv" id="pvspot${i}"></span></div>
       <button class="now" data-now="${i}" title="現在の UTC を ATO に記入">NOW</button>
     </div>
@@ -600,12 +632,18 @@ function onEntry(e){
   const el = e.target, i = +el.dataset.i, f = el.dataset.f;
   scheduleSave();
   if(f==='eto'){
-    const m = clockToMin(el.value);
-    if(m!=null){
-      STATE.wps[i].eto_manual = m;
-      STATE.etoBaseIdx = i;
-      recompute();
-    }
+    /* 入力中は一切書き換えない。確定は blur / Enter で行う。
+       （途中の "123" を 0123 と解釈して書き戻すと、BackSpace で 0000 に
+         張り付いて編集できなくなるため） */
+    return;
+  }else if(f==='spot'){
+    /* 数字だけ打てば 3 桁目の後ろに / が入る（240/30） */
+    const v = fmtWind(el.value);
+    if(v !== el.value) el.value = v;
+    STATE.wps[i].spot = v;
+    const strip = $('#s'+i);
+    if(strip) strip.classList.toggle('flagged', !!(STATE.wps[i].ato||STATE.wps[i].rmg));
+    return;
   }else if(f==='ato'){
     STATE.wps[i].ato = el.value;
     const strip = $('#s'+i);
@@ -625,8 +663,27 @@ function onBlur(e){
     const m = clockToMin(el.value);
     if(m!=null){ el.value = minToClock(m).replace(':',''); STATE.wps[i].ato = el.value; recompute(); }
   }else if(f==='eto'){
-    const m = clockToMin(el.value);
-    if(m!=null){ el.value = minToClock(m).replace(':',''); }
+    /* ここで初めて確定させる。
+       空欄        → 手修正を取り消して自動計算に戻す
+       正しい時刻  → その時刻を基準にする
+       それ以外    → 捨てて元の表示に戻す（recompute が書き戻す）        */
+    const raw = el.value.trim();
+    if(raw === ''){
+      delete STATE.wps[i].eto_manual;
+      if(STATE.etoBaseIdx === i) STATE.etoBaseIdx = -1;
+    }else{
+      const m = clockToMin(raw);
+      if(m != null){ STATE.wps[i].eto_manual = m; STATE.etoBaseIdx = i; }
+    }
+    recompute();
+  }else if(f==='sat'){
+    const v = fmtSat(el.value);
+    if(v !== el.value) el.value = v;
+    STATE.wps[i].sat = v;
+  }else if(f==='spot'){
+    const v = fmtWind(el.value);
+    if(v !== el.value) el.value = v;
+    STATE.wps[i].spot = v;
   }
 }
 
@@ -652,12 +709,15 @@ function recompute(){
       }else{ fEl.textContent=''; fEl.className='delta'; fEl.title=''; }
     }
 
+    // 編集中の欄には書き戻さない（カーソルと衝突して入力できなくなるため）
+    const editing = (document.activeElement === etoInp);
+
     // このWPの ETO を計算: 自分が手修正されているか、手前の最後の手修正WPを基準に
     let etoAbs = null;
     if(w.eto_manual != null){
       // 自分が手修正されている
       etoAbs = w.eto_manual;
-      etoInp.value = minToClock(etoAbs).replace(':','');
+      if(!editing) etoInp.value = minToClock(etoAbs).replace(':','');
       etoInp.classList.add('manual');
     }else{
       // 手前を遡って最後の手修正WPを探す
@@ -672,11 +732,10 @@ function recompute(){
       // 自動計算
       if(baseEtoMin!=null && w.ctmeMin!=null){
         etoAbs = baseEtoMin + (w.ctmeMin - baseCtmeMin);
-        const d = dayOffset(etoAbs);
-        etoInp.value = minToClock(etoAbs).replace(':','');
+        if(!editing) etoInp.value = minToClock(etoAbs).replace(':','');
         etoInp.classList.remove('manual');
       }else{
-        etoInp.value = '';
+        if(!editing) etoInp.value = '';
       }
     }
 
