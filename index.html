@@ -624,8 +624,8 @@ function stripHTML(w){
                title="数字だけ入れるとマイナスになります（45 → -45）。プラス値は +15 のように符号を付けてください">
         <span class="pv" id="pvsat${i}"></span></div>
       <div class="slot"><span class="k">SPOT WND</span>
-        <input data-f="spot" data-i="${i}" inputmode="text" maxlength="7" placeholder="---/--" autocomplete="off" value="${esc(w.spot)}"
-               title="数字だけ入れると自動で / が入ります（24030 → 240/30、040135 → 040/135）">
+        <input data-f="spot" data-i="${i}" inputmode="numeric" maxlength="7" placeholder="---/--" autocomplete="off" value="${esc(w.spot)}"
+               title="数字だけ続けて入れてください。欄を離れると / が入ります（24030 → 240/30、040135 → 040/135）">
         <span class="pv" id="pvspot${i}"></span></div>
       <button class="now" data-now="${i}" title="現在の UTC を ATO に記入">NOW</button>
     </div>
@@ -640,14 +640,6 @@ function onEntry(e){
     /* 入力中は一切書き換えない。確定は blur / Enter で行う。
        （途中の "123" を 0123 と解釈して書き戻すと、BackSpace で 0000 に
          張り付いて編集できなくなるため） */
-    return;
-  }else if(f==='spot'){
-    /* 数字だけ打てば 3 桁目の後ろに / が入る（240/30） */
-    const v = fmtWind(el.value);
-    if(v !== el.value) el.value = v;
-    STATE.wps[i].spot = v;
-    const strip = $('#s'+i);
-    if(strip) strip.classList.toggle('flagged', !!(STATE.wps[i].ato||STATE.wps[i].rmg));
     return;
   }else if(f==='ato'){
     STATE.wps[i].ato = el.value;
