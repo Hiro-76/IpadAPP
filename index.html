@@ -250,6 +250,10 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
       border-bottom:1px solid #222;min-height:1.5em;padding:6px 3px;
       color:#ffffff !important;background:#000000 !important;line-height:1.5;
       letter-spacing:0.05em}
+  /* ETO は記入欄ではなく「計算済みの予定時刻」なので白地・黒文字で印字する。
+     ATO 記入済みの行は背景が薄い水色になるため、白抜き文字だと読めなくなる。 */
+  .pv.pv-eto{color:#000 !important;background:#fff !important;border-bottom:0;
+      font-size:11pt !important;font-weight:700 !important;min-height:0;padding:5px 3px}
   .delta{font-size:7pt;min-height:0}
   .rule{font-size:4.5pt;opacity:0.8;padding:1px 6px;margin:0;display:none}
 }
@@ -602,6 +606,7 @@ function stripHTML(w){
     <div class="entry">
       <div class="slot"><span class="k">ETO</span>
         <input data-f="eto" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="--:--" autocomplete="off" value="" class="eto_input" title="手入力（4桁）するとそこを基準に以降が再計算されます。空にすると自動計算に戻ります">
+        <span class="pv pv-eto" id="pveto${i}"></span>
         <div class="delta" id="dlt${i}"></div></div>
       <div class="slot"><span class="k">ATO</span>
         <input data-f="ato" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="----" autocomplete="off" value="${esc(w.ato)}">
@@ -860,6 +865,12 @@ function preparePrint(){
       const el = document.getElementById('pv'+(f==='alt_in'?'alt':f)+i);
       if(el) el.textContent = w[f] || '';
     });
+    /* ETO は計算結果なので入力欄から拾う（手修正した場合は "*" を付ける） */
+    const etoEl  = document.getElementById('pveto'+i);
+    const etoInp = document.querySelector('input[data-f="eto"][data-i="'+i+'"]');
+    if(etoEl) etoEl.textContent = (etoInp && etoInp.value)
+      ? etoInp.value + (w.eto_manual != null ? '*' : '')
+      : '----';
   });
 }
 window.addEventListener('beforeprint', preparePrint);
