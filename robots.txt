@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /
+
+# 注意: クローラーが実際に読むのは https://hiro-76.github.io/robots.txt であり、
+# プロジェクトページ配下のこのファイルは無視される。
+# 検索避けとして実際に効いているのは各 HTML の <meta name="robots" content="noindex">。
+# ユーザーサイト用リポジトリ (Hiro-76.github.io) を作る場合は、その直下に
+# 上の 2 行を置けばサイト全体に効く。

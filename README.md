@@ -68,6 +68,22 @@ GitHub Pages が最も簡単:
 
 サブディレクトリ配信でも動くように、参照は全て相対パスにしてある。
 
+### 検索避け
+
+両方の `index.html` に `<meta name="robots" content="noindex, nofollow, …">` を入れてあるので、
+Google などの検索結果には出ない（＝ URL を知っている人だけが辿り着く）。
+`<meta name="referrer" content="no-referrer">` も入れてあり、リンクを踏んで他サイトへ
+移動しても参照元として URL が漏れない。
+
+**これは認証ではない**。GitHub Pages は Free / Pro / Team プランでは必ず全世界公開で、
+アクセス制御は Enterprise Cloud 限定。リポジトリが public なのでプロフィールから
+URL は推測できる。本当に人を限定したい場合は、リポジトリを private にする
+（GitHub Pro 以上）か、Cloudflare Pages + Cloudflare Access のような認証付きホスティングへ移す。
+
+なお `robots.txt` はクローラーが `https://<ユーザー名>.github.io/robots.txt`（ドメイン直下）
+しか読まないため、プロジェクトページ配下に置いたものは無視される。実際に効いているのは
+上の `meta` タグ。サイト全体で止めたい場合は `<ユーザー名>.github.io` リポジトリの直下に置く。
+
 ---
 
 ## ファイル構成
