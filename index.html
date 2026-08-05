@@ -87,6 +87,13 @@ header{
 .btn:hover{border-color:var(--plan)}
 .btn:active{transform:translateY(1px)}
 .btn.primary{border-color:var(--ink);color:var(--ink)}
+/* T/O に現在時刻を入れるボタン: 出発時に必ず押すので大きく目立たせる */
+.btn.now-to{
+  background:var(--ok);border-color:var(--ok);color:#06210f;
+  font-size:15px;font-weight:700;letter-spacing:.14em;padding:10px 20px;
+}
+html[data-theme="day"] .btn.now-to{color:#fff}
+.btn.now-to:hover{border-color:var(--ok);filter:brightness(1.08)}
 .btn:focus-visible,input:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .toggle{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--plan);cursor:pointer}
 .toggle input{accent-color:var(--ink);width:15px;height:15px}
@@ -150,6 +157,10 @@ header{
 .strip.flagged{border-color:var(--ink)}
 .strip.milestone{background:var(--panel2)}
 /* EEP（ETOPS ENTRY POINT）は一目で分かるよう名前を白以外にする */
+/* 復帰時に「前回ここまで書いた」場所を数秒だけ光らせる */
+.strip.resume{outline:2px solid var(--ok);outline-offset:2px;
+  animation:resumefade 2.6s ease-out forwards}
+@keyframes resumefade{0%,60%{outline-color:var(--ok)}100%{outline-color:transparent}}
 .strip.etp .wp .name{color:var(--etp)}
 .strip.etp{border-color:var(--etp)}
 
@@ -201,6 +212,8 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
   color:var(--plan);padding:8px 10px;cursor:pointer;font-size:12px;line-height:1;height:44px;
   transition:border-color .2s,color .2s}
 .now:hover{color:var(--ink);border-color:var(--ink)}
+/* 2 度押し待ち: 押し間違いに気づけるよう見た目を変える */
+.now.arm{color:var(--late);border-color:var(--late);font-weight:700;letter-spacing:0}
 .delta{font-size:13px;font-weight:600;text-align:center;letter-spacing:.04em;min-height:1.35em}
 .delta.early{color:var(--ok)}
 .delta.late{color:var(--late)}
@@ -283,7 +296,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
     </div>
     <button class="btn" id="btnPdfLoad" title="PDF ファイルを読み込む">📄 PDF読込</button>
     <button class="btn" id="btnStd" title="プランの STD を T/O に入れる">STD 呼出</button>
-    <button class="btn" id="btnNowTo" title="現在の UTC を T/O に入れる">NOW</button>
+    <button class="btn now-to" id="btnNowTo" title="現在の UTC を T/O に入れる">NOW</button>
     <label class="toggle" title="ATO を入れた地点以降の ETO を、その実績時刻を起点に引き直します">
       <input type="checkbox" id="reflow"> ATO 基準で ETO 更新
     </label>
@@ -564,6 +577,11 @@ function render(){
     inp.addEventListener('blur', onBlur);
     /* Enter / 完了 で確定（blur と同じ処理を通す） */
     inp.addEventListener('keydown', ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); inp.blur(); } });
+    /* 最後に触った欄を覚えておき、アプリを閉じても続きから書けるようにする */
+    inp.addEventListener('focus', ()=>{
+      STATE.lastFocus = {i:+inp.dataset.i, f:inp.dataset.f};
+      scheduleSave();
+    });
     // JSON読み込み時など、初期値がある場合は色を適用
     if(inp.dataset.f==='ato' && inp.value){
       inp.dispatchEvent(new Event('input', {bubbles:true}));
@@ -572,14 +590,34 @@ function render(){
   host.querySelectorAll('button[data-now]').forEach(b=>{
     b.addEventListener('click', ()=>{
       const idx = +b.dataset.now;
-      const d = new Date();
-      const v = String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinutes()).padStart(2,'0');
       const inp = host.querySelector('input[data-f="ato"][data-i="'+idx+'"]');
-      inp.value = v; onEntry({target:inp}); inp.focus();
+      if(!inp) return;
+      /* 既に ATO が入っている欄は、うっかり押しても上書きしない。
+         1 回目で「もう一度」に変わり、続けてもう 1 回押したときだけ書き換える。 */
+      if(inp.value.trim() && armedNow !== b){ armNow(b); return; }
+      disarmNow();
+      const d = new Date();
+      inp.value = String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinutes()).padStart(2,'0');
+      onEntry({target:inp}); inp.focus();
     });
   });
   recompute();
 }
+
+/* NOW ボタンの二度押し確認（誤操作で ATO を上書きしないため） */
+let armedNow = null, armTimer = null;
+function armNow(b){
+  disarmNow();
+  armedNow = b;
+  b.classList.add('arm');
+  b.textContent = 'もう一度';
+  armTimer = setTimeout(disarmNow, 4000);
+}
+function disarmNow(){
+  clearTimeout(armTimer);
+  if(armedNow){ armedNow.classList.remove('arm'); armedNow.textContent = 'NOW'; armedNow = null; }
+}
+document.addEventListener('scroll', disarmNow, {passive:true});
 
 function cell(k,v,extra){
   return '<div class="cell"><span class="k">'+k+'</span><span class="v'+(v?'':' dim')+'">'+
@@ -616,7 +654,7 @@ function stripHTML(w){
         <input data-f="ato" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="----" autocomplete="off" value="${esc(w.ato)}">
         <span class="pv" id="pvato${i}"></span></div>
       <div class="slot"><span class="k">ALT</span>
-        <input data-f="alt_in" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="-----" autocomplete="off" value="${esc(w.alt_in)}" title="実績高度">
+        <input data-f="alt_in" data-i="${i}" inputmode="numeric" maxlength="3" placeholder="---" autocomplete="off" value="${esc(w.alt_in)}" title="実績高度（3 桁のフライトレベル 例: 320）">
         <span class="pv" id="pvalt${i}"></span></div>
       <div class="slot"><span class="k">RMG</span>
         <input data-f="rmg" data-i="${i}" inputmode="decimal" maxlength="7" placeholder="---.-" autocomplete="off" value="${esc(w.rmg)}"
@@ -957,7 +995,10 @@ function saveSession(){
       toff: $('#toff').value,
       reflow: $('#reflow').checked,
       info: STATE.info,
-      wps: STATE.wps
+      wps: STATE.wps,
+      /* 続きから書けるように、最後に触った欄とスクロール位置も残す */
+      lastFocus: STATE.lastFocus || null,
+      scrollY: Math.round(window.scrollY || 0)
     }));
   }catch(e){ console.warn('セッションを保存できませんでした', e); }
 }
@@ -965,6 +1006,22 @@ let saveTimer = null;
 function scheduleSave(){ clearTimeout(saveTimer); saveTimer = setTimeout(saveSession, 400); }
 function flushSave(){ clearTimeout(saveTimer); saveSession(); }
 function clearSession(){ try{ localStorage.removeItem(LS_SESSION); }catch(e){} }
+/* 前回いた場所まで戻して、その欄から続けて書けるようにする */
+function resumeAt(lf, y){
+  requestAnimationFrame(()=>{
+    const strip = (lf && typeof lf.i === 'number') ? $('#s'+lf.i) : null;
+    if(strip){
+      STATE.lastFocus = lf;
+      strip.scrollIntoView({block:'center'});
+      strip.classList.add('resume');
+      setTimeout(()=>strip.classList.remove('resume'), 2600);
+      const inp = document.querySelector('input[data-f="'+lf.f+'"][data-i="'+lf.i+'"]');
+      if(inp) inp.focus({preventScroll:true});
+    }else if(typeof y === 'number' && y > 0){
+      window.scrollTo(0, y);
+    }
+  });
+}
 function restoreSession(){
   let d = null;
   try{ d = JSON.parse(localStorage.getItem(LS_SESSION) || 'null'); }catch(e){}
@@ -973,6 +1030,7 @@ function restoreSession(){
   if(d.toff) $('#toff').value = d.toff;
   $('#reflow').checked = !!d.reflow;
   load({info: d.info || {}, wps: d.wps});
+  resumeAt(d.lastFocus, d.scrollY);
   toast('前回の作業を復元しました' + (savedAt && !isNaN(savedAt) ?
         '（' + String(savedAt.getUTCHours()).padStart(2,'0') + ':' +
         String(savedAt.getUTCMinutes()).padStart(2,'0') + 'Z 保存）' : ''),
