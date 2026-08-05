@@ -151,7 +151,8 @@ html[data-theme="day"] .btn.now-to{color:#fff}
 .strip{
   background:var(--panel);border:1px solid var(--rule);border-radius:10px;
   margin:6px 0;padding:8px 10px;box-shadow:var(--shadow);
-  display:grid;grid-template-columns:minmax(150px,190px) 1fr minmax(300px,420px);
+  /* 記入欄は横幅に応じて広げる。固定上限だと iPad 横向きで 0551 が 055 に切れる。 */
+  display:grid;grid-template-columns:minmax(140px,190px) minmax(0,1fr) clamp(330px,46vw,700px);
   gap:10px;align-items:center;
 }
 .strip.flagged{border-color:var(--ink)}
@@ -175,7 +176,10 @@ html[data-theme="day"] .btn.now-to{color:#fff}
 .cell .v{font-size:13px;color:var(--plan);white-space:nowrap}
 .cell .v.dim{opacity:.4}
 
-.entry{display:grid;grid-template-columns:repeat(6,1fr) auto;gap:7px;align-items:end;
+/* 欄ごとに必要な桁数が違うので、幅も桁数どおりに配分する
+   ETO 0557(4) / ATO 0551(4) / ALT 360(3) / RMG 284.1(5) / SAT -45(3) / SPOT WND 040/135(7) */
+.entry{display:grid;grid-template-columns:4fr 4fr 3fr 5fr 3fr 7fr auto;gap:7px;align-items:end;
+  container-type:inline-size;
   background:var(--panel);border-radius:8px;padding:8px;border:1px solid var(--rule);
   transition:background-color .2s,border-color .2s}
 .entry:has(input[data-f="ato"]:not(:placeholder-shown)){
@@ -187,10 +191,14 @@ html[data-theme="day"] .entry:has(input[data-f="ato"]:not(:placeholder-shown)){
 .slot input,.slot .eto{
   width:100%;text-align:center;border-radius:8px;padding:10px 2px;
   border:1px solid var(--rule);background:var(--panel2);
-  font-size:clamp(18px,4.6vw,23px);font-weight:700;letter-spacing:.04em;color:var(--ink);
+  font-size:clamp(16px,4.2vw,21px);font-weight:700;letter-spacing:.02em;color:var(--ink);
   line-height:1.15;min-width:0;
   transition:background-color .15s,border-color .15s;
 }
+/* 記入欄の文字は「欄の幅」に合わせて縮める。画面幅（vw）基準だと、
+   iPad 横向きのように画面は広いのに 1 欄が狭い状況で 0551 が 055 に切れる。
+   cqw 非対応の古い Safari では上の vw 版がそのまま使われる。 */
+.slot input,.slot .eto{font-size:clamp(14px,4.4cqw,21px)}
 .slot input[data-f="ato"]:not(:placeholder-shown){
   background:rgba(95,212,138,.15);border-color:var(--ok);
 }
@@ -229,7 +237,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
 
 @media (max-width:900px){
   .strip{grid-template-columns:1fr;gap:8px}
-  .entry{grid-template-columns:repeat(6,1fr);}
+  .entry{grid-template-columns:4fr 4fr 3fr 5fr 3fr 7fr;}
   .now{grid-column:1/-1;width:100%;height:36px}
   .wp{flex-direction:row;align-items:baseline;gap:10px}
   .slot .k{font-size:10px;letter-spacing:.04em}
@@ -259,7 +267,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
   .wp .name .seq{font-size:3.5pt;opacity:0.6;margin-right:2px}
   .wp .pos{display:none}
   .plan{gap:1px 10px}.cell .k{font-size:5.5pt}.cell .v{font-size:7.5pt}
-  .entry{gap:4px;padding:5px;margin:0;grid-template-columns:repeat(6,1fr) auto;width:100%;border:1px solid #666;border-radius:6px;background:#111}
+  .entry{gap:4px;padding:5px;margin:0;grid-template-columns:4fr 4fr 3fr 5fr 3fr 7fr auto;width:100%;border:1px solid #666;border-radius:6px;background:#111}
   .slot .k{font-size:6.5pt;opacity:1;color:#666 !important;font-weight:700}
   .slot input{display:none}
   .slot .eto{border:0;padding:0;font-size:10pt;text-align:center}
