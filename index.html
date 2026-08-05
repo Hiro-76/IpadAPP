@@ -1089,6 +1089,39 @@ window.addEventListener('pagehide', flushSave);
 window.addEventListener('beforeunload', flushSave);
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushSave(); });
 
+/* ---- キーボードを閉じたときにページがずれないようにする --------------
+   iOS はソフトキーボードの開閉で表示領域の高さを変える。閉じた直後に
+   ブラウザ側がスクロール位置を勝手に詰めるため、記入していた行が画面から
+   逃げる。横向きはキーボードが画面に占める割合が大きく、ずれ幅も大きい。
+   visualViewport の高さで開閉を検出し、閉じた時に元の位置へ戻す。        */
+(function(){
+  const vv = window.visualViewport;
+  if(!vv) return;
+  let prevH = vv.height, kbOpen = false, restoring = false, keepY = window.scrollY;
+
+  window.addEventListener('scroll', ()=>{
+    /* 復元中の scrollTo で上書きしない。それ以外は常に現在位置を覚えておく */
+    if(!restoring) keepY = window.scrollY;
+  }, {passive:true});
+
+  vv.addEventListener('resize', ()=>{
+    const h = vv.height, d = h - prevH;
+    prevH = h;
+    if(d < -100){                 /* キーボードが出た */
+      kbOpen = true;
+    }else if(d > 100 && kbOpen){  /* キーボードが消えた */
+      kbOpen = false;
+      const y = keepY;
+      restoring = true;
+      const put = ()=> window.scrollTo(0, y);
+      put();
+      requestAnimationFrame(put);
+      setTimeout(put, 80);
+      setTimeout(()=>{ put(); restoring = false; }, 280);
+    }
+  });
+})();
+
 /* ---- network + cache badge ------------------------------------------ */
 const SW_OK = ('serviceWorker' in navigator) && location.protocol !== 'file:';
 function updNetBadge(){
