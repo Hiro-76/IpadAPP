@@ -1089,37 +1089,75 @@ window.addEventListener('pagehide', flushSave);
 window.addEventListener('beforeunload', flushSave);
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushSave(); });
 
-/* ---- キーボードを閉じたときにページがずれないようにする --------------
-   iOS はソフトキーボードの開閉で表示領域の高さを変える。閉じた直後に
-   ブラウザ側がスクロール位置を勝手に詰めるため、記入していた行が画面から
-   逃げる。横向きはキーボードが画面に占める割合が大きく、ずれ幅も大きい。
-   visualViewport の高さで開閉を検出し、閉じた時に元の位置へ戻す。        */
+/* ---- 表示位置を保つ --------------------------------------------------
+   iOS はソフトキーボードの開閉で表示領域を変え、閉じた直後にスクロール
+   位置を勝手に詰める。Split View / Stage Manager で横幅を変えると、今度は
+   各行の高さ自体が変わるので「スクロール量(px)を覚えて戻す」では合わない。
+   そこで、いま見ている WPT の行を基準にして、その行が画面の同じ高さに
+   来るように戻す。行の高さが変わっても位置が保たれる。                  */
 (function(){
   const vv = window.visualViewport;
-  if(!vv) return;
-  let prevH = vv.height, kbOpen = false, restoring = false, keepY = window.scrollY;
+  let anchor = null, anchorTop = 0, restoring = false, kbOpen = false;
+  let prevH = vv ? vv.height : window.innerHeight;
+  let prevW = vv ? vv.width  : window.innerWidth;
 
-  window.addEventListener('scroll', ()=>{
-    /* 復元中の scrollTo で上書きしない。それ以外は常に現在位置を覚えておく */
-    if(!restoring) keepY = window.scrollY;
-  }, {passive:true});
-
-  vv.addEventListener('resize', ()=>{
-    const h = vv.height, d = h - prevH;
-    prevH = h;
-    if(d < -100){                 /* キーボードが出た */
-      kbOpen = true;
-    }else if(d > 100 && kbOpen){  /* キーボードが消えた */
-      kbOpen = false;
-      const y = keepY;
-      restoring = true;
-      const put = ()=> window.scrollTo(0, y);
-      put();
-      requestAnimationFrame(put);
-      setTimeout(put, 80);
-      setTimeout(()=>{ put(); restoring = false; }, 280);
+  function headerBottom(){
+    const h = document.querySelector('header');
+    return h ? h.getBoundingClientRect().bottom : 0;
+  }
+  /* 基準にする行を決める: 入力中ならその行、なければ画面の一番上に見えている行 */
+  function capture(){
+    if(restoring) return;
+    const act = document.activeElement;
+    let el = (act && act.closest) ? act.closest('.strip') : null;
+    if(!el){
+      const top = headerBottom() + 1;
+      el = [...document.querySelectorAll('.strip')]
+             .find(s => s.getBoundingClientRect().bottom > top) || null;
     }
-  });
+    if(el){ anchor = el; anchorTop = el.getBoundingClientRect().top; }
+  }
+  /* 基準の行を元の高さへ戻す。iOS のアニメーションに合わせて数回当て直す。 */
+  function restore(){
+    if(!anchor || !anchor.isConnected) return;
+    restoring = true;
+    const put = ()=>{
+      const d = anchor.getBoundingClientRect().top - anchorTop;
+      if(Math.abs(d) > 0.5) window.scrollBy(0, d);
+    };
+    put();
+    requestAnimationFrame(put);
+    setTimeout(put, 80);
+    setTimeout(put, 200);
+    setTimeout(()=>{ put(); restoring = false; }, 320);
+  }
+
+  let rafId = 0;
+  window.addEventListener('scroll', ()=>{
+    if(restoring) return;
+    cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(capture);
+  }, {passive:true});
+  document.addEventListener('focusin', capture);
+
+  if(vv){
+    vv.addEventListener('resize', ()=>{
+      const h = vv.height, w = vv.width, dh = h - prevH, dw = w - prevW;
+      prevH = h; prevW = w;
+      const sameWidth = Math.abs(dw) < 2;
+      if(sameWidth && dh < -100){          /* キーボードが出た（幅は変わらない） */
+        kbOpen = true;
+        setTimeout(capture, 350);          /* iOS が行を送り出した後の位置を基準にする */
+      }else if(sameWidth && dh > 100 && kbOpen){   /* キーボードが消えた */
+        kbOpen = false;
+        restore();
+      }else if(Math.abs(dw) > 2 || Math.abs(dh) > 2){
+        restore();                         /* 画面サイズ・分割幅が変わった */
+      }
+    });
+  }
+  window.addEventListener('orientationchange', ()=> setTimeout(restore, 150));
+  window.addEventListener('resize', ()=>{ if(!vv) restore(); });
 })();
 
 /* ---- network + cache badge ------------------------------------------ */
