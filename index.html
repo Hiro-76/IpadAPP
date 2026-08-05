@@ -575,8 +575,23 @@ function render(){
   host.querySelectorAll('input[data-f]').forEach(inp=>{
     inp.addEventListener('input', onEntry);
     inp.addEventListener('blur', onBlur);
-    /* Enter / 完了 で確定（blur と同じ処理を通す） */
-    inp.addEventListener('keydown', ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); inp.blur(); } });
+    /* Enter / 完了 で確定し、記入順の次の欄へ進む（外付けキーボード用）。
+       画面キーボードのテンキーには Enter が無いので、ATO / ALT は桁数で自動送りする。 */
+    inp.addEventListener('keydown', ev=>{
+      if(ev.key !== 'Enter') return;
+      ev.preventDefault();
+      const i = +inp.dataset.i, f = inp.dataset.f;
+      inp.blur();                       /* 先に確定（整形と再計算を通す） */
+      if(!focusNextField(i, f)){        /* 行の最後なら、次の WPT の ATO へ */
+        const nxt = document.querySelector('input[data-f="ato"][data-i="'+(i+1)+'"]');
+        if(nxt){
+          const s = nxt.closest('.strip');
+          if(s) s.scrollIntoView({block:'center'});
+          nxt.focus({preventScroll:true});
+          if(nxt.value) nxt.select();
+        }
+      }
+    });
     /* 最後に触った欄を覚えておき、アプリを閉じても続きから書けるようにする */
     inp.addEventListener('focus', ()=>{
       STATE.lastFocus = {i:+inp.dataset.i, f:inp.dataset.f};
@@ -602,6 +617,20 @@ function render(){
     });
   });
   recompute();
+}
+
+/* 記入する順番。同じ WPT の中を ATO → ALT → RMG → SAT → SPOT WND と進む。 */
+const ENTRY_ORDER = ['ato','alt_in','rmg','sat','spot'];
+/* 次の欄へ。既に値があるときは選択状態にして、そのまま上書きできるようにする。 */
+function focusNextField(i, f){
+  const at = ENTRY_ORDER.indexOf(f);
+  const nf = (at >= 0) ? ENTRY_ORDER[at+1] : null;
+  if(!nf) return false;
+  const nxt = document.querySelector('input[data-f="'+nf+'"][data-i="'+i+'"]');
+  if(!nxt) return false;
+  nxt.focus({preventScroll:true});
+  if(nxt.value) nxt.select();
+  return true;
 }
 
 /* NOW ボタンの二度押し確認（誤操作で ATO を上書きしないため） */
@@ -651,10 +680,11 @@ function stripHTML(w){
         <span class="pv pv-eto" id="pveto${i}"></span>
         <div class="delta" id="dlt${i}"></div></div>
       <div class="slot"><span class="k">ATO</span>
-        <input data-f="ato" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="----" autocomplete="off" value="${esc(w.ato)}">
+        <input data-f="ato" data-i="${i}" inputmode="numeric" maxlength="5" placeholder="----" autocomplete="off" value="${esc(w.ato)}"
+               title="4 桁入れると ALT へ自動で進みます">
         <span class="pv" id="pvato${i}"></span></div>
       <div class="slot"><span class="k">ALT</span>
-        <input data-f="alt_in" data-i="${i}" inputmode="numeric" maxlength="3" placeholder="---" autocomplete="off" value="${esc(w.alt_in)}" title="実績高度（3 桁のフライトレベル 例: 320）">
+        <input data-f="alt_in" data-i="${i}" inputmode="numeric" maxlength="3" placeholder="---" autocomplete="off" value="${esc(w.alt_in)}" title="実績高度（3 桁のフライトレベル 例: 320）。3 桁入れると RMG へ進みます">
         <span class="pv" id="pvalt${i}"></span></div>
       <div class="slot"><span class="k">RMG</span>
         <input data-f="rmg" data-i="${i}" inputmode="decimal" maxlength="7" placeholder="---.-" autocomplete="off" value="${esc(w.rmg)}"
@@ -688,11 +718,20 @@ function onEntry(e){
     const strip = $('#s'+i);
     if(strip) strip.classList.toggle('flagged', !!(el.value||STATE.wps[i].rmg));
     recompute();
+    /* 4 桁そろったら ALT へ送る（テンキーには Enter が無いので自動で進める）。
+       NOW ボタン経由（e.type が無い）では動かさない。 */
+    if(e.type === 'input' && /^\d{4}$/.test(el.value.trim()) && clockToMin(el.value) != null){
+      focusNextField(i, 'ato');
+    }
   }else{
     STATE.wps[i][f] = el.value;
     const strip = $('#s'+i);
     if(strip) strip.classList.toggle('flagged', !!(STATE.wps[i].ato||STATE.wps[i].rmg));
     if(f==='rmg') recompute();
+    /* ALT は 3 桁で確定するので、そろったら RMG へ送る */
+    if(f==='alt_in' && e.type === 'input' && /^\d{3}$/.test(el.value.trim())){
+      focusNextField(i, 'alt_in');
+    }
   }
 }
 function onBlur(e){
