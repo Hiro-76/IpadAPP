@@ -1132,13 +1132,39 @@ document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushSav
     setTimeout(()=>{ put(); restoring = false; }, 320);
   }
 
+  /* キーボードが出た時。iOS は入力欄を見せようとページを勝手に送るが、
+     欄がキーボードに隠れていないなら動かす必要はないので元の位置へ戻す。
+     隠れる場合だけ、隠れない高さまでの最小限だけ動かす。                */
+  function settleForKeyboard(){
+    if(!anchor || !anchor.isConnected) return;
+    restoring = true;
+    const el = document.activeElement;
+    const back = anchor.getBoundingClientRect().top - anchorTop;   /* これで元の位置 */
+    let by = back;
+    if(el && el.matches && el.matches('input')){
+      const r = el.getBoundingClientRect();
+      const lowLimit = (vv ? vv.offsetTop + vv.height : window.innerHeight) - 10;
+      const topLimit = headerBottom() + 10;
+      const nTop = r.top - back, nBottom = r.bottom - back;   /* 戻した後の欄の位置 */
+      if(nBottom > lowLimit)     by = back + (nBottom - lowLimit);  /* キーボードに隠れる分だけ送る */
+      else if(nTop < topLimit)   by = back - (topLimit - nTop);     /* ヘッダーに隠れる分だけ戻す */
+    }
+    if(Math.abs(by) > 0.5) window.scrollBy(0, by);
+    anchorTop = anchor.getBoundingClientRect().top;    /* 以後この位置を保つ */
+    setTimeout(()=>{ restoring = false; }, 60);
+  }
+
   let rafId = 0;
   window.addEventListener('scroll', ()=>{
     if(restoring) return;
     cancelAnimationFrame(rafId);
     rafId = requestAnimationFrame(capture);
   }, {passive:true});
-  document.addEventListener('focusin', capture);
+  document.addEventListener('focusin', ()=>{
+    capture();
+    /* 既にキーボードが出ている状態で別の欄に移った時も同じ扱い */
+    if(kbOpen){ setTimeout(settleForKeyboard, 60); setTimeout(settleForKeyboard, 220); }
+  });
 
   if(vv){
     vv.addEventListener('resize', ()=>{
@@ -1147,7 +1173,9 @@ document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushSav
       const sameWidth = Math.abs(dw) < 2;
       if(sameWidth && dh < -100){          /* キーボードが出た（幅は変わらない） */
         kbOpen = true;
-        setTimeout(capture, 350);          /* iOS が行を送り出した後の位置を基準にする */
+        settleForKeyboard();
+        setTimeout(settleForKeyboard, 60);
+        setTimeout(settleForKeyboard, 260);   /* iOS が後から送ってくる分も戻す */
       }else if(sameWidth && dh > 100 && kbOpen){   /* キーボードが消えた */
         kbOpen = false;
         restore();
