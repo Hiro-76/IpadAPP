@@ -1105,9 +1105,12 @@ document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushSav
     const h = document.querySelector('header');
     return h ? h.getBoundingClientRect().bottom : 0;
   }
+  /* 閉じている最中の自動スクロールを「ユーザーが動かした」と誤解しないための猶予 */
+  let blockUntil = 0;
+
   /* 基準にする行を決める: 入力中ならその行、なければ画面の一番上に見えている行 */
   function capture(){
-    if(restoring) return;
+    if(restoring || Date.now() < blockUntil) return;
     const act = document.activeElement;
     let el = (act && act.closest) ? act.closest('.strip') : null;
     if(!el){
@@ -1117,20 +1120,32 @@ document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushSav
     }
     if(el){ anchor = el; anchorTop = el.getBoundingClientRect().top; }
   }
-  /* 基準の行を元の高さへ戻す。iOS のアニメーションに合わせて数回当て直す。 */
+  /* 基準の行を元の高さへ戻す。iOS のアニメーションに合わせて数回当て直す。
+     途中でユーザーが画面に触れたら、その操作を優先して中断する。          */
+  let token = 0, draggedAt = 0;
   function restore(){
     if(!anchor || !anchor.isConnected) return;
+    if(Date.now() - draggedAt < 800) return;   /* 直前に自分でスクロールしていたら触らない */
+    const mine = ++token;
     restoring = true;
     const put = ()=>{
+      if(mine !== token) return;
       const d = anchor.getBoundingClientRect().top - anchorTop;
       if(Math.abs(d) > 0.5) window.scrollBy(0, d);
     };
     put();
     requestAnimationFrame(put);
-    setTimeout(put, 80);
-    setTimeout(put, 200);
-    setTimeout(()=>{ put(); restoring = false; }, 320);
+    /* iOS はキーボードのアニメーションの間に何度もスクロールを動かすので、
+       収まるまで当て直す */
+    [60,140,260,420,600].forEach(ms => setTimeout(put, ms));
+    setTimeout(()=>{ if(mine !== token) return; put(); restoring = false; }, 700);
   }
+  /* 指でのスクロール（touchmove）やホイールは、こちらの補正より優先する。
+     単なるタップ（touchstart / pointerdown）は含めない — キーボードを閉じる
+     ために画面外をタップした時まで補正が止まってしまうため。               */
+  function abortRestore(){ draggedAt = Date.now(); token++; restoring = false; }
+  ['touchmove','wheel'].forEach(ev =>
+    window.addEventListener(ev, abortRestore, {passive:true}));
 
   /* キーボードが出た時。iOS は入力欄を見せようとページを勝手に送るが、
      欄がキーボードに隠れていないなら動かす必要はないので元の位置へ戻す。
@@ -1161,9 +1176,22 @@ document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushSav
     rafId = requestAnimationFrame(capture);
   }, {passive:true});
   document.addEventListener('focusin', ()=>{
+    blockUntil = 0;                 /* 欄をタップしたのはユーザー操作 */
     capture();
     /* 既にキーボードが出ている状態で別の欄に移った時も同じ扱い */
     if(kbOpen){ setTimeout(settleForKeyboard, 60); setTimeout(settleForKeyboard, 220); }
+  });
+  /* 欄から抜けた＝キーボードが閉じ始める。ここから先のスクロールは iOS が
+     勝手に動かしているものなので、基準にせず、元の位置へ戻す。
+     visualViewport の resize が来ない端末／状況でも効くよう、ここでも戻す。 */
+  document.addEventListener('focusout', ()=>{
+    blockUntil = Date.now() + 1000;
+    const stillTyping = ()=>{
+      const a = document.activeElement;
+      return !!(a && a.matches && a.matches('input,textarea'));
+    };
+    setTimeout(()=>{ if(!stillTyping()) restore(); }, 100);
+    setTimeout(()=>{ if(!stillTyping()) restore(); }, 380);
   });
 
   if(vv){
