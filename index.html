@@ -1008,9 +1008,9 @@ async function handoffFile(){
    同じプランを読み込んでいる前提で、指紋（便名-日付-WPT数）で確認する。
    文字は QR の英数字モードで扱える範囲（0-9 A-Z 空白 $ % * + - . / :）だけを使う。
    ======================================================================= */
-const QR_HEAD  = 'NVL2';
+const QR_HEAD  = 'NVL3';
 const QR_SEP   = '$';         /* 項目の区切り */
-const QR_CHUNK = 700;         /* 1 枚あたりの本文の長さ */
+const QR_CHUNK = 1000;        /* 1 枚あたりの本文の長さ */
 
 function planPrint(info, wps){
   return ((info&&info.flight)||'NAVLOG') + '-' + ((info&&info.date)||'NODATE') + '-' + (wps?wps.length:0);
@@ -1044,19 +1044,58 @@ function applyEntries(body){
   flushSave();
   return {n, skipped};
 }
+/* プラン本体（便名・各 WPT）→ 文字列。強制読み込みで丸ごと差し替えるために送る。 */
+const INFO_KEYS = ['flight','dep','dest','date','reg','std','sta','ft'];
+const WP_KEYS   = ['seq','name','pos','tc','mc','gs','tas','dist','rem','ctme','rtme',
+                   'alt','fuel','tmp','wind','mwtp','isa'];
+function encodePlan(){
+  const i = STATE.info || {};
+  const parts = ['I:' + INFO_KEYS.map(k => i[k] || '').join(':')];
+  STATE.wps.forEach(w => parts.push('W:' + WP_KEYS.map(k => w[k] == null ? '' : w[k]).join(':')));
+  return parts.join(QR_SEP).toUpperCase();
+}
+function decodePlan(body){
+  const info = {}, wps = [];
+  body.split(QR_SEP).forEach(part=>{
+    if(part.startsWith('I:')){
+      const f = part.slice(2).split(':');
+      INFO_KEYS.forEach((k,n)=>{ if(f[n]) info[k] = f[n]; });
+    }else if(part.startsWith('W:')){
+      const f = part.slice(2).split(':');
+      const w = {};
+      WP_KEYS.forEach((k,n)=>{ w[k] = f[n] || ''; });
+      w.seq = +w.seq || (wps.length + 1);
+      w.ctmeMin = ctmeToMin(w.ctme);
+      w.ato = ''; w.alt_in = ''; w.rmg = ''; w.sat = ''; w.spot = '';
+      wps.push(w);
+    }
+  });
+  return {info, wps};
+}
+
+/* 記入内容の枚数を先に、プラン本体をその後ろに並べる。
+   プランが一致している相手は前半だけ読めば終わる。 */
 function qrChunks(){
-  const body = encodeEntries(), fp = planPrint(STATE.info, STATE.wps);
-  const total = Math.max(1, Math.ceil(body.length / QR_CHUNK));
-  const out = [];
-  for(let s=0; s<total; s++){
-    out.push([QR_HEAD, s+1, total, fp, body.substr(s*QR_CHUNK, QR_CHUNK)].join('*'));
-  }
-  return out;
+  const fp = planPrint(STATE.info, STATE.wps);
+  const cut = (s)=>{
+    const out = [];
+    const n = Math.max(1, Math.ceil(s.length / QR_CHUNK));
+    for(let k=0;k<n;k++) out.push(s.substr(k*QR_CHUNK, QR_CHUNK));
+    return out;
+  };
+  const eParts = cut(encodeEntries());
+  const pParts = cut(encodePlan());
+  const all = eParts.concat(pParts);
+  return all.map((body, k) =>
+    [QR_HEAD, k+1, all.length, eParts.length, fp, body].join('*'));
 }
 function parseChunk(text){
-  const m = /^NVL2\*(\d+)\*(\d+)\*([^*]*)\*([\s\S]*)$/.exec(text||'');
-  if(!m) return null;
-  return {seq:+m[1], total:+m[2], fp:m[3], body:m[4]};
+  let m = /^NVL3\*(\d+)\*(\d+)\*(\d+)\*([^*]*)\*([\s\S]*)$/.exec(text||'');
+  if(m) return {seq:+m[1], total:+m[2], eCount:+m[3], fp:m[4], body:m[5]};
+  /* 古い版（記入内容だけ）からも受け取れるようにしておく */
+  m = /^NVL2\*(\d+)\*(\d+)\*([^*]*)\*([\s\S]*)$/.exec(text||'');
+  if(m) return {seq:+m[1], total:+m[2], eCount:+m[2], fp:m[3], body:m[4]};
+  return null;
 }
 
 function loadScript(src){
@@ -1069,9 +1108,12 @@ function loadScript(src){
     document.head.appendChild(s);
   });
 }
+/* QR の英数字モードで扱える文字だけか（バイトモードより 1.5 倍ほど多く入る） */
+const QR_ALNUM = /^[0-9A-Z $%*+\-./:]*$/;
 function drawQR(canvas, text, px){
   const q = qrcode(0, 'L');          /* 0 = 必要な大きさを自動で選ぶ */
-  q.addData(text);
+  /* モードを明示しないとバイト扱いになり、QR が無駄に細かくなって読めない */
+  q.addData(text, QR_ALNUM.test(text) ? 'Alphanumeric' : 'Byte');
   q.make();
   const n = q.getModuleCount(), quiet = 4, size = (n + quiet*2) * px;
   canvas.width = canvas.height = size;
@@ -1093,10 +1135,13 @@ function hoffStop(){
   if(hoffStream){ hoffStream.getTracks().forEach(t=>t.stop()); hoffStream = null; }
 }
 function hoffOpen(){
-  if(!STATE.wps.length){ setStatus('先にプランを読み込んでください','err'); return; }
-  $('#hoffInfo').textContent = planPrint(STATE.info, STATE.wps) + ' / 記入済み ' + filledCount(STATE.wps) + ' WPT';
+  const ready = STATE.wps.length > 0;
+  $('#hoffInfo').textContent = ready
+    ? planPrint(STATE.info, STATE.wps) + ' / 記入済み ' + filledCount(STATE.wps) + ' WPT'
+    : 'この iPad はプラン未読込 — 受け取りだけできます';
   $('#hoff').hidden = false;
-  hoffShowSend();
+  /* プランが無い iPad は受け取り側にしかなれない */
+  if(ready) hoffShowSend(); else hoffShowRecv();
 }
 function hoffClose(){
   hoffStop();
@@ -1115,26 +1160,34 @@ async function hoffShowSend(){
   body.innerHTML = '<div class="hoff-step" id="qrStep">QR を準備しています…</div>' +
                    '<canvas id="qrCanvas"></canvas>';
   hoffSay('');
+  if(!STATE.wps.length){
+    $('#hoffBody').innerHTML = '<div class="hoff-step">プランが読み込まれていません</div>';
+    hoffSay('先に PDF かサンプルを読み込むか、「QR で受け取る」で相手からプランごと受け取ってください。');
+    return;
+  }
   try{ await loadScript('vendor/qrcode.js'); }
   catch(e){ hoffSay('QR の部品を読み込めませんでした。一度オンラインで開き直してください'); return; }
 
   flushSave();
   const chunks = qrChunks();
+  const eCount = +chunks[0].split('*')[3];
   const canvas = $('#qrCanvas');
   let at = 0;
   const show = ()=>{
     drawQR(canvas, chunks[at], 6);
     $('#qrStep').textContent = (chunks.length > 1)
-      ? (at+1) + ' / ' + chunks.length + ' 枚目（自動で切り替わります）'
+      ? (at+1) + ' / ' + chunks.length + ' 枚目' + (at < eCount ? '（記入内容）' : '（プラン本体）')
       : '相手の iPad で読み取ってください';
     at = (at + 1) % chunks.length;
   };
   show();
-  if(chunks.length > 1) hoffTimer = setInterval(show, 1800);
+  if(chunks.length > 1) hoffTimer = setInterval(show, 900);
   canvas.onclick = show;
-  hoffSay('相手の iPad で <b>引き継ぎ → QR で受け取る</b> を開き、この画面に向けてください。' +
-          (chunks.length > 1 ? '<br>' + chunks.length + ' 枚を順番に表示します。全部読み取るまでそのまま向けておいてください。' : '') +
-          '<br>記入内容だけを送ります（プランは相手の iPad に読み込み済みである必要があります）。');
+  hoffSay('相手の iPad で <b>引き継ぎ → QR で受け取る</b> を開き、この画面に向けてください。<br>' +
+          '全 ' + chunks.length + ' 枚（記入内容 ' + eCount + ' 枚 → プラン本体 ' + (chunks.length - eCount) +
+          ' 枚）を繰り返し表示します。<br>' +
+          '相手が<b>同じプランを読み込み済みなら最初の ' + eCount + ' 枚だけ</b>で終わります。' +
+          'プランが違う／未読込の相手は、<b>新規読み込み（強制）</b>で全部読み取ればプランごと差し替わります。');
 }
 
 /* --- 受け取る側: カメラで読み取る --- */
@@ -1180,55 +1233,84 @@ async function hoffShowRecv(){
 }
 
 /* --- 受信中の状態 --- */
-let rxGot = new Map(), rxTotal = 0, rxFp = null, rxForce = false, rxWarned = false;
-function rxReset(){ rxGot = new Map(); rxTotal = 0; rxFp = null; rxForce = false; rxWarned = false; }
+let rxGot = new Map(), rxTotal = 0, rxE = 0, rxFp = null, rxForce = false, rxWarned = false;
+function rxReset(){ rxGot = new Map(); rxTotal = 0; rxE = 0; rxFp = null; rxForce = false; rxWarned = false; }
+function rxJoin(from, to){
+  let s = '';
+  for(let k=from; k<=to; k++) s += (rxGot.get(k) || '');
+  return s;
+}
+function rxHave(from, to){
+  for(let k=from; k<=to; k++) if(!rxGot.has(k)) return false;
+  return true;
+}
 
-/* 読めた 1 枚を受け取る。全部そろったら適用する。 */
+/* 読めた 1 枚を受け取る。必要な分がそろったら適用する。 */
 function hoffTakeChunk(text){
   const c = parseChunk(text);
   if(!c) return false;
   const mine = planPrint(STATE.info, STATE.wps);
+  const ready = STATE.wps.length > 0;
 
-  if(c.fp !== mine && !rxForce){
+  /* 枚は常に集めておく（後から強制に切り替えてもすぐ終わるように） */
+  if(!rxTotal){ rxTotal = c.total; rxE = c.eCount; rxFp = c.fp; }
+  rxGot.set(c.seq, c.body);
+
+  const match = ready && c.fp === mine;
+  if(!match && !rxForce){
     if(!rxWarned){                       /* 毎フレーム描き直さない */
       rxWarned = true;
       const step = $('#qrStep'); if(step) step.textContent = 'プランが一致しません';
-      hoffSay('相手: <b>' + esc(c.fp) + '</b><br>この iPad: <b>' + esc(mine) + '</b><br>' +
+      hoffSay('相手: <b>' + esc(c.fp) + '</b><br>この iPad: <b>' + esc(ready ? mine : '（プラン未読込）') + '</b><br>' +
               '同じフライトプランを読み込んでから受け取るのが確実です。<br>' +
               '<button class="btn" id="qrForce" style="margin-top:8px">新規読み込み（強制）</button><br>' +
-              '<span style="opacity:.8">強制すると WPT の番号だけで当てはめます。' +
-              'プランが違うと別の地点に値が入ることがあります。</span>');
+              '<span style="opacity:.8">強制すると、この iPad のプラン（便名・全 WPT）と記入内容を' +
+              '相手のもので<b>丸ごと置き換えます</b>。</span>');
       const b = $('#qrForce');
       if(b) b.onclick = ()=>{
         rxForce = true; rxWarned = false;
-        const st = $('#qrStep'); if(st) st.textContent = '強制読み込み: QR を読み取ってください';
-        hoffSay('プランの一致を確認せずに取り込みます。もう一度 QR にカメラを向けてください。');
+        const st = $('#qrStep'); if(st) st.textContent = '強制読み込み: QR にカメラを向けたままにしてください';
+        hoffSay('プランごと差し替えます。全 ' + rxTotal + ' 枚を読み取るまでそのまま向けておいてください。');
       };
     }
+    hoffProgress();
     return false;
   }
 
-  if(!rxTotal){ rxTotal = c.total; rxFp = c.fp; }
-  rxGot.set(c.seq, c.body);
-  const need = rxTotal;
-  const bar = $('#qrBar'); if(bar) bar.style.width = Math.round(rxGot.size/need*100) + '%';
-  const step = $('#qrStep');
-  if(rxGot.size < need){
-    if(step) step.textContent = '受信 ' + rxGot.size + ' / ' + need + ' 枚';
-    return false;
+  /* 一致しているとき: 記入内容の枚だけで完了する */
+  if(!rxForce){
+    if(!rxHave(1, rxE)){ hoffProgress(); return false; }
+    return hoffApply(rxJoin(1, rxE), null, false);
   }
-  /* そろった */
-  let bodyStr = '';
-  for(let s=1; s<=need; s++) bodyStr += (rxGot.get(s) || '');
-  const forced = rxForce, otherFp = rxFp;
+  /* 強制: プラン本体もそろってから、丸ごと差し替える */
+  if(!rxHave(1, rxTotal)){ hoffProgress(); return false; }
+  return hoffApply(rxJoin(1, rxE), rxJoin(rxE+1, rxTotal), true);
+}
+function hoffProgress(){
+  const need = rxForce ? rxTotal : rxE;
+  let have = 0;
+  for(let k=1;k<=need;k++) if(rxGot.has(k)) have++;
+  const bar = $('#qrBar'); if(bar) bar.style.width = Math.round(have/Math.max(1,need)*100) + '%';
+  const step = $('#qrStep');
+  if(step && !rxWarned) step.textContent = '受信 ' + have + ' / ' + need + ' 枚';
+}
+function hoffApply(entryStr, planStr, forced){
+  const otherFp = rxFp;
   hoffStop();
-  const r = applyEntries(bodyStr);
+  let note = '';
+  if(planStr){
+    const {info, wps} = decodePlan(planStr);
+    if(!wps.length){ hoffSay('プランを読み取れませんでした'); return false; }
+    load({info, wps});                       /* 便名も WPT も丸ごと差し替え */
+    note = ' ／ プランごと差し替え: ' + ((info.flight||'NAVLOG') + ' ' + (info.date||''));
+  }
+  const r = applyEntries(entryStr);
   hoffClose();
   const at = nextToFill({wps:STATE.wps});
   if(at) resumeAt(at, null);
   toast('引き継ぎました — ' + r.n + ' WPT 分を取り込みました' +
-        (r.skipped ? '（' + r.skipped + ' WPT はこの iPad に無いため取り込めませんでした）' : '') +
-        (forced ? ' ／ 強制読み込み: ' + otherFp : ''), {ms: forced ? 10000 : 7000});
+        (r.skipped ? '（' + r.skipped + ' WPT は取り込めませんでした）' : '') +
+        (forced ? note || (' ／ 強制読み込み: ' + otherFp) : ''), {ms: forced ? 10000 : 7000});
   return true;
 }
 
