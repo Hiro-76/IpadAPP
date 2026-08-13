@@ -118,6 +118,31 @@ html[data-theme="day"] .btn.now-to{color:#fff}
 #toast.on{transform:translateX(-50%) translateY(0);opacity:1;pointer-events:auto}
 #toast .btn{padding:5px 9px;font-size:11px}
 
+/* ---------- 引き継ぎ（QR） ---------- */
+#hoff{
+  position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.72);
+  display:flex;align-items:center;justify-content:center;padding:16px;
+  padding-top:calc(16px + env(safe-area-inset-top));
+}
+#hoff[hidden]{display:none}
+.hoff-box{
+  background:var(--panel);border:1px solid var(--rule);border-radius:12px;
+  padding:14px;width:min(560px,100%);max-height:100%;overflow:auto;
+  box-shadow:0 20px 60px rgba(0,0,0,.5);
+}
+.hoff-head{display:flex;align-items:center;gap:10px;font-size:13px;letter-spacing:.1em}
+.hoff-head #hoffInfo{font-size:11px;color:var(--plan);letter-spacing:.04em}
+.hoff-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.hoff-tabs .btn.on{border-color:var(--ink);color:var(--ink)}
+#hoffBody{display:flex;flex-direction:column;align-items:center;gap:10px}
+#hoffMsg{font-size:12px;line-height:1.7;color:var(--plan);margin:10px 0 0;text-align:center}
+#qrCanvas{width:min(420px,72vh,100%);height:auto;image-rendering:pixelated;
+  background:#fff;border-radius:8px;padding:6px}
+#qrVideo{width:min(420px,60vh,100%);height:auto;border-radius:8px;background:#000}
+.hoff-step{font-size:13px;letter-spacing:.1em;color:var(--ink);font-weight:700}
+.hoff-bar{width:min(420px,100%);height:6px;border-radius:3px;background:var(--panel2);overflow:hidden}
+.hoff-bar i{display:block;height:100%;background:var(--ok);width:0}
+
 /* ---------- loader ---------- */
 #loader{max-width:960px;margin:22px auto;padding:0 14px}
 .drop{
@@ -311,6 +336,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
     <span class="spacer"></span>
     <button class="btn" id="btnCsv">CSV</button>
     <button class="btn" id="btnSave">JSON保存</button>
+    <button class="btn" id="btnHandoff" title="記入内容を他の iPad へ渡す">引き継ぎ</button>
     <button class="btn" id="btnLoad">JSON読込</button>
     <button class="btn primary" id="btnPrint" title="印刷ダイアログで「PDFとして保存」を選んでください">PDF保存</button>
     <button class="btn" id="btnTheme">☀︎</button>
@@ -347,6 +373,24 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
 <main id="sheet"></main>
 
 <div id="toast"><span id="toastMsg"></span><button class="btn" id="toastBtn" hidden></button></div>
+
+<!-- 引き継ぎ（QR コード / ファイル）。ネットワークもペアリングも使わない -->
+<div id="hoff" hidden>
+  <div class="hoff-box">
+    <div class="hoff-head">
+      <b>引き継ぎ</b><span id="hoffInfo"></span>
+      <span class="spacer"></span>
+      <button class="btn" id="hoffClose">閉じる</button>
+    </div>
+    <div class="hoff-tabs">
+      <button class="btn" id="hoffSend">QR で渡す</button>
+      <button class="btn" id="hoffRecv">QR で受け取る</button>
+      <button class="btn" id="hoffFile">ファイルで渡す</button>
+    </div>
+    <div id="hoffBody"></div>
+    <p id="hoffMsg"></p>
+  </div>
+</div>
 
 
 <script>
@@ -900,6 +944,268 @@ function stamp(){
 }
 
 /* =======================================================================
+   引き継ぎ（iPad 間の受け渡し）
+   AirDrop は Bluetooth と端末間の直接 Wi-Fi を使うので、機内で
+   ネットワークが無くても他の iPad へ渡せる。
+   ======================================================================= */
+const HANDOFF_ZULU = ()=>{
+  const d = new Date();
+  return String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinutes()).padStart(2,'0')+'Z';
+};
+/* 記入済みの WPT 数（ATO / ALT / RMG / SAT / SPOT のどれかが入っている行） */
+function filledCount(wps){
+  return (wps||[]).filter(w => w.ato || w.alt_in || w.rmg || w.sat || w.spot).length;
+}
+function buildHandoff(){
+  return {
+    app: 'navlog', v: 2,
+    savedAt: new Date().toISOString(),
+    toff: $('#toff').value,
+    reflow: $('#reflow').checked,
+    info: STATE.info,
+    wps: STATE.wps,
+    lastFocus: STATE.lastFocus || null
+  };
+}
+/* 受け取った側が「次にどこから書けばいいか」— 最後に触っていた欄、
+   無ければ ATO が空の最初の WPT */
+function nextToFill(d){
+  if(d.lastFocus && typeof d.lastFocus.i === 'number') return d.lastFocus;
+  const i = (d.wps||[]).findIndex(w => !w.ato);
+  return i >= 0 ? {i, f:'ato'} : null;
+}
+async function handoffFile(){
+  if(!STATE.wps.length){ setStatus('先にプランを読み込んでください','err'); return; }
+  flushSave();
+  const data = buildHandoff();
+  const name = stamp() + '_HANDOFF.json';
+  const json = JSON.stringify(data, null, 1);
+  try{
+    const file = new File([json], name, {type:'application/json'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:'NAVLOG 引き継ぎ ' + (STATE.info.flight||'')});
+      hoffSay('共有先を選んでください。受け取り側は「JSON読込」で開きます');
+      return;
+    }
+  }catch(err){
+    if(err && err.name === 'AbortError') return;      /* ユーザーが閉じただけ */
+    console.warn('share failed', err);
+  }
+  download(name, json, 'application/json');
+  hoffSay('ファイルに保存しました。受け取り側は「JSON読込」で開きます');
+}
+
+/* =======================================================================
+   QR での引き継ぎ
+   記入内容だけを QR に載せる（プランそのものは載せない）。両方の iPad が
+   同じプランを読み込んでいる前提で、指紋（便名-日付-WPT数）で確認する。
+   文字は QR の英数字モードで扱える範囲（0-9 A-Z 空白 $ % * + - . / :）だけを使う。
+   ======================================================================= */
+const QR_HEAD  = 'NVL2';
+const QR_SEP   = '$';         /* 項目の区切り */
+const QR_CHUNK = 700;         /* 1 枚あたりの本文の長さ */
+
+function planPrint(info, wps){
+  return ((info&&info.flight)||'NAVLOG') + '-' + ((info&&info.date)||'NODATE') + '-' + (wps?wps.length:0);
+}
+/* 記入内容 → 1 本の文字列 */
+function encodeEntries(){
+  const parts = ['T:' + ($('#toff').value||''), 'R:' + ($('#reflow').checked ? 1 : 0)];
+  STATE.wps.forEach((w,i)=>{
+    const eto = (w.eto_manual != null) ? String(w.eto_manual) : '';
+    if(!(w.ato||w.alt_in||w.rmg||w.sat||w.spot||eto)) return;
+    parts.push([i, w.ato||'', w.alt_in||'', w.rmg||'', w.sat||'', w.spot||'', eto].join(':'));
+  });
+  return parts.join(QR_SEP).toUpperCase();
+}
+/* 文字列 → 記入内容（受け取り側） */
+function applyEntries(body){
+  let n = 0;
+  body.split(QR_SEP).forEach(part=>{
+    if(part.startsWith('T:')){ const v = part.slice(2); if(v) $('#toff').value = v; return; }
+    if(part.startsWith('R:')){ $('#reflow').checked = part.slice(2) === '1'; return; }
+    const f = part.split(':');
+    const i = +f[0];
+    if(!Number.isInteger(i) || !STATE.wps[i]) return;
+    const w = STATE.wps[i];
+    w.ato = f[1]||''; w.alt_in = f[2]||''; w.rmg = f[3]||''; w.sat = f[4]||''; w.spot = f[5]||'';
+    if(f[6]) w.eto_manual = +f[6]; else delete w.eto_manual;
+    n++;
+  });
+  render();
+  flushSave();
+  return n;
+}
+function qrChunks(){
+  const body = encodeEntries(), fp = planPrint(STATE.info, STATE.wps);
+  const total = Math.max(1, Math.ceil(body.length / QR_CHUNK));
+  const out = [];
+  for(let s=0; s<total; s++){
+    out.push([QR_HEAD, s+1, total, fp, body.substr(s*QR_CHUNK, QR_CHUNK)].join('*'));
+  }
+  return out;
+}
+function parseChunk(text){
+  const m = /^NVL2\*(\d+)\*(\d+)\*([^*]*)\*([\s\S]*)$/.exec(text||'');
+  if(!m) return null;
+  return {seq:+m[1], total:+m[2], fp:m[3], body:m[4]};
+}
+
+function loadScript(src){
+  return new Promise((res, rej)=>{
+    if(document.querySelector('script[data-lazy="'+src+'"]')) return res();
+    const s = document.createElement('script');
+    s.src = src; s.dataset.lazy = src;
+    s.onload = ()=>res();
+    s.onerror = ()=>rej(new Error(src + ' を読み込めませんでした'));
+    document.head.appendChild(s);
+  });
+}
+function drawQR(canvas, text, px){
+  const q = qrcode(0, 'L');          /* 0 = 必要な大きさを自動で選ぶ */
+  q.addData(text);
+  q.make();
+  const n = q.getModuleCount(), quiet = 4, size = (n + quiet*2) * px;
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0,0,size,size);
+  g.fillStyle = '#000';
+  for(let r=0;r<n;r++) for(let c=0;c<n;c++)
+    if(q.isDark(r,c)) g.fillRect((c+quiet)*px, (r+quiet)*px, px, px);
+  return n;
+}
+
+/* ---- 引き継ぎ画面 ----------------------------------------------------- */
+let hoffTimer = null, hoffStream = null, hoffRaf = 0;
+
+function hoffSay(msg){ $('#hoffMsg').innerHTML = msg || ''; }
+function hoffStop(){
+  clearInterval(hoffTimer); hoffTimer = null;
+  cancelAnimationFrame(hoffRaf); hoffRaf = 0;
+  if(hoffStream){ hoffStream.getTracks().forEach(t=>t.stop()); hoffStream = null; }
+}
+function hoffOpen(){
+  if(!STATE.wps.length){ setStatus('先にプランを読み込んでください','err'); return; }
+  $('#hoffInfo').textContent = planPrint(STATE.info, STATE.wps) + ' / 記入済み ' + filledCount(STATE.wps) + ' WPT';
+  $('#hoff').hidden = false;
+  hoffShowSend();
+}
+function hoffClose(){
+  hoffStop();
+  $('#hoff').hidden = true;
+  $('#hoffBody').innerHTML = '';
+  hoffSay('');
+}
+function hoffTab(id){
+  ['hoffSend','hoffRecv','hoffFile'].forEach(t => $('#'+t).classList.toggle('on', t === id));
+}
+
+/* --- 渡す側: QR を順番に表示する --- */
+async function hoffShowSend(){
+  hoffStop(); hoffTab('hoffSend');
+  const body = $('#hoffBody');
+  body.innerHTML = '<div class="hoff-step" id="qrStep">QR を準備しています…</div>' +
+                   '<canvas id="qrCanvas"></canvas>';
+  hoffSay('');
+  try{ await loadScript('vendor/qrcode.js'); }
+  catch(e){ hoffSay('QR の部品を読み込めませんでした。一度オンラインで開き直してください'); return; }
+
+  flushSave();
+  const chunks = qrChunks();
+  const canvas = $('#qrCanvas');
+  let at = 0;
+  const show = ()=>{
+    drawQR(canvas, chunks[at], 6);
+    $('#qrStep').textContent = (chunks.length > 1)
+      ? (at+1) + ' / ' + chunks.length + ' 枚目（自動で切り替わります）'
+      : '相手の iPad で読み取ってください';
+    at = (at + 1) % chunks.length;
+  };
+  show();
+  if(chunks.length > 1) hoffTimer = setInterval(show, 1800);
+  canvas.onclick = show;
+  hoffSay('相手の iPad で <b>引き継ぎ → QR で受け取る</b> を開き、この画面に向けてください。' +
+          (chunks.length > 1 ? '<br>' + chunks.length + ' 枚を順番に表示します。全部読み取るまでそのまま向けておいてください。' : '') +
+          '<br>記入内容だけを送ります（プランは相手の iPad に読み込み済みである必要があります）。');
+}
+
+/* --- 受け取る側: カメラで読み取る --- */
+async function hoffShowRecv(){
+  hoffStop(); hoffTab('hoffRecv');
+  const body = $('#hoffBody');
+  body.innerHTML = '<div class="hoff-step" id="qrStep">カメラを起動しています…</div>' +
+                   '<video id="qrVideo" playsinline muted></video>' +
+                   '<div class="hoff-bar"><i id="qrBar"></i></div>';
+  hoffSay('相手の iPad の QR にカメラを向けてください。');
+
+  try{ await loadScript('vendor/jsQR.js'); }
+  catch(e){ hoffSay('QR の部品を読み込めませんでした。一度オンラインで開き直してください'); return; }
+
+  const video = $('#qrVideo');
+  try{
+    hoffStream = await navigator.mediaDevices.getUserMedia({
+      video: {facingMode: 'environment'}, audio: false});
+    video.srcObject = hoffStream;
+    await video.play();
+  }catch(err){
+    $('#qrStep').textContent = 'カメラを使えません';
+    hoffSay('カメラを使えませんでした（' + (err && err.name || 'エラー') + '）。<br>' +
+            '設定 → NAVLOG（または Safari）でカメラを許可するか、「ファイルで渡す」をお使いください。');
+    return;
+  }
+
+  const cv = document.createElement('canvas');
+  const g  = cv.getContext('2d', {willReadFrequently:true});
+  const got = new Map();
+  let total = 0, fp = null;
+
+  const tick = ()=>{
+    hoffRaf = requestAnimationFrame(tick);
+    if(video.readyState !== 4) return;
+    const w = video.videoWidth, h = video.videoHeight;
+    if(!w || !h) return;
+    cv.width = w; cv.height = h;
+    g.drawImage(video, 0, 0, w, h);
+    let code = null;
+    try{ code = jsQR(g.getImageData(0,0,w,h).data, w, h, {inversionAttempts:'dontInvert'}); }catch(e){}
+    if(code && code.data) hoffTakeChunk(code.data, got, ()=>total, v=>total=v, ()=>fp, v=>fp=v);
+  };
+  hoffRaf = requestAnimationFrame(tick);
+}
+
+/* 読めた 1 枚を受け取る。全部そろったら適用する。 */
+function hoffTakeChunk(text, got, getTotal, setTotal, getFp, setFp){
+  const c = parseChunk(text);
+  if(!c) return false;
+  const mine = planPrint(STATE.info, STATE.wps);
+  if(c.fp !== mine){
+    $('#qrStep').textContent = 'プランが一致しません';
+    hoffSay('相手: <b>' + c.fp + '</b><br>この iPad: <b>' + mine + '</b><br>' +
+            '同じフライトプランを読み込んでから受け取ってください。');
+    return false;
+  }
+  if(!getTotal()){ setTotal(c.total); setFp(c.fp); }
+  got.set(c.seq, c.body);
+  const need = getTotal();
+  const bar = $('#qrBar'); if(bar) bar.style.width = Math.round(got.size/need*100) + '%';
+  const step = $('#qrStep');
+  if(got.size < need){
+    if(step) step.textContent = '受信 ' + got.size + ' / ' + need + ' 枚';
+    return false;
+  }
+  /* そろった */
+  let bodyStr = '';
+  for(let s=1; s<=need; s++) bodyStr += (got.get(s) || '');
+  hoffStop();
+  const n = applyEntries(bodyStr);
+  hoffClose();
+  const at = nextToFill({wps:STATE.wps});
+  if(at) resumeAt(at, null);
+  toast('引き継ぎました — ' + n + ' WPT 分の記入を取り込みました', {ms:7000});
+  return true;
+}
+
+/* =======================================================================
    Wiring
    ======================================================================= */
 $('#btnPick').onclick   = ()=> $('#file').click();
@@ -919,15 +1225,50 @@ $('#btnNowTo').onclick= ()=>{ const d=new Date();
 
 $('#btnCsv').onclick  = ()=> STATE.wps.length && download(stamp()+'.csv', toCSV(), 'text/csv;charset=utf-8');
 $('#btnSave').onclick = ()=> STATE.wps.length && download(stamp()+'.json',
-  JSON.stringify({toff:$('#toff').value, info:STATE.info, wps:STATE.wps}, null, 1), 'application/json');
+  JSON.stringify(buildHandoff(), null, 1), 'application/json');
+$('#btnHandoff').onclick = hoffOpen;
+$('#hoffClose').onclick  = hoffClose;
+$('#hoffSend').onclick   = hoffShowSend;
+$('#hoffRecv').onclick   = hoffShowRecv;
+$('#hoffFile').onclick   = ()=>{ hoffStop(); hoffTab('hoffFile');
+  $('#hoffBody').innerHTML = ''; handoffFile(); };
+$('#hoff').addEventListener('click', e=>{ if(e.target.id === 'hoff') hoffClose(); });
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && !$('#hoff').hidden) hoffClose(); });
 $('#btnLoad').onclick = ()=> $('#fileJson').click();
 $('#fileJson').onchange = async e=>{
-  const f = e.target.files[0]; if(!f) return;
+  const f = e.target.files[0];
+  e.target.value = '';                     /* 同じファイルをもう一度選べるように */
+  if(!f) return;
   try{
     const d = JSON.parse(await f.text());
     if(!d.wps || !d.wps.length) throw new Error('wps がありません');
+
+    /* 記入済みの内容を黙って捨てない */
+    const mine = filledCount(STATE.wps);
+    if(mine){
+      const theirs = filledCount(d.wps);
+      const when = d.savedAt ? new Date(d.savedAt) : null;
+      const at = (when && !isNaN(when))
+        ? String(when.getUTCHours()).padStart(2,'0')+':'+String(when.getUTCMinutes()).padStart(2,'0')+'Z'
+        : '時刻不明';
+      const same = (d.info && d.info.flight) === STATE.info.flight;
+      const ok = confirm(
+        '受け取ったデータで置き換えます。\n\n' +
+        '受け取り: ' + ((d.info&&d.info.flight)||'NAVLOG') + ' / 記入済み ' + theirs + ' WPT / ' + at + ' 保存\n' +
+        'この iPad: ' + (STATE.info.flight||'NAVLOG') + ' / 記入済み ' + mine + ' WPT\n\n' +
+        (same ? '' : '⚠ 便名が違います。\n\n') +
+        'この iPad の記入内容は消えます。よろしいですか？');
+      if(!ok){ setStatus('取り込みを中止しました'); return; }
+    }
+
     if(d.toff) $('#toff').value = d.toff;
+    if(typeof d.reflow === 'boolean') $('#reflow').checked = d.reflow;
     load({info:d.info||{}, wps:d.wps});
+    /* 続きから書けるよう、相手が最後にいた欄（無ければ ATO が空の最初の WPT）へ */
+    const at = nextToFill(d);
+    if(at) resumeAt(at, null);
+    const n = filledCount(d.wps);
+    toast('引き継ぎました — 記入済み ' + n + ' WPT。続きの欄にカーソルを置きました', {ms:7000});
   }catch(err){ setStatus('JSON を読み込めませんでした: '+err.message,'err'); }
 };
 function preparePrint(){

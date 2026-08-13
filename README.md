@@ -62,6 +62,24 @@
   上書きする（機内で肘が当たった等の誤操作で実績時刻を壊さないため）。
   4 秒放置するか画面をスクロールすると解除される。
 
+### 別の iPad へ引き継ぐ（QR コード / ネットワーク不要）
+
+飛行中に別の iPad へ記入内容を渡して、続きから書ける。**Wi-Fi も AirDrop も使わない。**
+画面に出した QR をもう一方の iPad のカメラで読むだけ。
+
+1. **両方の iPad で同じフライトプランを読み込んでおく**（QR に載せるのは記入内容だけ）
+2. 渡す側: `引き継ぎ` → **QR で渡す**
+3. 受け取る側: `引き継ぎ` → **QR で受け取る** → 相手の画面にカメラを向ける
+4. 読み取れると自動で取り込み、**未記入の最初の WPT にカーソルが移る**
+
+- 渡すのは ATO / ALT / RMG / SAT / SPOT WND / 手修正した ETO / T/O / `ATO 基準で ETO 更新` の設定。
+- 記入量が多いと QR が複数枚になり、自動で切り替わる（全 71 WPT を埋めた最悪ケースで 4 枚）。
+  受け取り側は全部そろうまでカメラを向けたままにする。
+- **便名・日付・WPT 数**が一致しない iPad は受け取りを拒否する（取り違え防止）。
+- カメラが使えない環境では `引き継ぎ` → **ファイルで渡す** で JSON を書き出し、
+  受け取り側が `JSON読込` で開く。こちらはプランごと渡るので、
+  相手がプランを読み込んでいなくても使える。
+
 ### 記入内容の自動保存
 
 - **NAVLOG**: 入力した T/O・ATO・ALT・RMG・SAT・SPOT WND と読み込んだプランを
@@ -116,6 +134,8 @@ manifest.webmanifest          ホーム画面追加時の名前・アイコン�
 icons/                        NAVLOG のアイコン（180 / 192 / 512 / maskable）
 vendor/pdf.min.js             pdf.js 3.11.174 (legacy build) — CDN からローカル同梱に変更
 vendor/pdf.worker.min.js      pdf.js worker — これも同梱（オフラインで PDF を解析するため）
+vendor/qrcode.js              QR 生成 (qrcode-generator 1.4.4) — 引き継ぎで使う
+vendor/jsQR.js                QR 読み取り (jsQR 1.4.0) — 引き継ぎで使う。必要な時だけ読み込む
 wind/index.html               RWY Wind Limit Calculator 本体
 wind/sw.js                    風計算アプリの Service Worker（scope は wind/ のみ）
 wind/manifest.webmanifest     風計算アプリのホーム画面設定

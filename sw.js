@@ -5,7 +5,7 @@
    wind/ など別アプリのページ / ファイルには介入しない。
    キャッシュ名に VERSION を含めるので、VERSION を上げれば全ファイルを取り直す。
    ======================================================================= */
-const VERSION = 'navlog-v1.1.2';
+const VERSION = 'navlog-v1.2.0';
 const CACHE   = VERSION;
 
 /* sw.js からの相対パス。GitHub Pages のサブディレクトリ配信でもそのまま動く。 */
@@ -15,6 +15,8 @@ const ASSETS = [
   'manifest.webmanifest',
   'vendor/pdf.min.js',
   'vendor/pdf.worker.min.js',
+  'vendor/qrcode.js',
+  'vendor/jsQR.js',
   'icons/apple-touch-icon.png',
   'icons/favicon-32.png',
   'icons/icon-192.png',
