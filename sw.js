@@ -5,8 +5,12 @@
    wind/ など別アプリのページ / ファイルには介入しない。
    キャッシュ名に VERSION を含めるので、VERSION を上げれば全ファイルを取り直す。
    ======================================================================= */
-const VERSION = 'navlog-v1.7.0';
+const VERSION = 'navlog-v1.8.0';
 const CACHE   = VERSION;
+/* CDU 読み取り用の OCR 一式（約 9MB）は別のキャッシュに置き、
+   アプリを更新しても取り直さない。初めて使う時にだけ取りに行く。 */
+const OCR_CACHE = 'navlog-ocr';
+const OCR_PATH  = '/vendor/ocr/';
 
 /* sw.js からの相対パス。GitHub Pages のサブディレクトリ配信でもそのまま動く。 */
 const ASSETS = [
@@ -51,7 +55,7 @@ self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const names = await caches.keys();
     /* 自分の古いキャッシュだけ消す（他アプリのキャッシュは残す） */
-    await Promise.all(names.filter(n => n !== CACHE && n.startsWith('navlog-'))
+    await Promise.all(names.filter(n => n !== CACHE && n !== OCR_CACHE && n.startsWith('navlog-'))
                            .map(n => caches.delete(n)));
     await self.clients.claim();
   })());
@@ -94,9 +98,20 @@ async function handleNavigation(request){
   }
 }
 
+/* OCR 一式: 使った時に別キャッシュへ入れ、以後はそこから返す */
+async function handleOcr(request){
+  const cache = await caches.open(OCR_CACHE);
+  const hit = await cache.match(request, {ignoreSearch: true});
+  if(hit) return hit;
+  const res = await fetch(request);
+  if(res && res.ok && res.type === 'basic') cache.put(request, res.clone()).catch(() => {});
+  return res;
+}
+
 /* 静的ファイル: 自分の管理対象だけキャッシュ優先で返す */
 async function handleAsset(request){
   const bare = request.url.split('#')[0].split('?')[0];
+  if(bare.indexOf(OCR_PATH) >= 0) return handleOcr(request);
   const cache = await caches.open(CACHE);
   if(OWNED().includes(bare)){
     const cached = await cache.match(bare);

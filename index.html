@@ -32,6 +32,7 @@
   --etp:#c78bff;         /* equal time point (ETP) — 目立たせる */
   --xfer:#48bbe8;        /* 引き継ぎ */
   --etops:#ff86b3;       /* ETOPS 代替空港 */
+  --cdu:#7fe3b0;         /* CDU 読み取り */
   --text:#dbe7f3;
   --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.35);
 }
@@ -47,6 +48,7 @@ html[data-theme="day"]{
   --etp:#7314c4;
   --xfer:#0b6ea8;
   --etops:#b0006a;
+  --cdu:#0d7a4a;
   --text:#16202b;
   --shadow:0 1px 0 rgba(0,0,0,.02), 0 6px 18px rgba(20,40,60,.10);
 }
@@ -131,6 +133,7 @@ header{
 html[data-theme="day"] .btn.theme{border-color:var(--ink);color:var(--ink)}
 html:not([data-theme="day"]) .btn.theme{border-color:var(--ink);color:var(--ink)}
 
+.btn.cdu{border-color:var(--cdu);color:var(--cdu)}
 /* T/O に現在時刻を入れるボタン: 出発時に必ず押すので色でも目立たせる */
 .btn.now-to{background:var(--ok);border-color:var(--ok);color:#06210f}
 html[data-theme="day"] .btn.now-to{color:#fff}
@@ -163,6 +166,23 @@ html[data-theme="day"] .btn.now-to{color:#fff}
 #toast .btn{padding:5px 9px;font-size:11px}
 
 /* ---------- 引き継ぎ（QR） ---------- */
+#cdu{
+  position:fixed;inset:0;z-index:61;background:rgba(0,0,0,.72);
+  display:flex;align-items:center;justify-content:center;padding:16px;
+  padding-top:calc(16px + env(safe-area-inset-top));
+}
+#cdu[hidden]{display:none}
+#cduBody{display:flex;flex-direction:column;align-items:center;gap:10px}
+#cduMsg{font-size:12px;line-height:1.7;color:var(--plan);margin:10px 0 0;text-align:center}
+#cduVideo,#cduShot{width:min(560px,62vh,100%);height:auto;border-radius:8px;background:#000}
+.cdu-grid{display:grid;grid-template-columns:auto auto auto;gap:8px 16px;align-items:center;
+  justify-content:center;width:min(560px,100%);font-size:14px}
+.cdu-grid .k{font-size:11px;letter-spacing:.12em;color:var(--plan)}
+.cdu-grid .v{font-size:20px;font-weight:700;color:var(--ink);letter-spacing:.04em}
+.cdu-grid .v.miss{color:var(--late);font-size:14px;font-weight:400}
+.cdu-grid .to{font-size:12px;color:var(--plan)}
+.cdu-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+
 #hoff{
   position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.72);
   display:flex;align-items:center;justify-content:center;padding:16px;
@@ -390,6 +410,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
     <span class="spacer"></span>
     <button class="btn" id="btnCsv">CSV</button>
     <button class="btn" id="btnSave">JSON保存</button>
+    <button class="btn big cdu" id="btnCdu" title="CDU の POS REPORT をカメラで読み取る">📷 CDU読込</button>
     <button class="btn big xfer" id="btnHandoff" title="記入内容を他の iPad へ渡す / 受け取る">⇄ 引き継ぎ</button>
     <button class="btn" id="btnLoad">JSON読込</button>
     <button class="btn big primary" id="btnPrint" title="印刷ダイアログで「PDFとして保存」を選んでください">PDF保存</button>
@@ -427,6 +448,19 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
 <main id="sheet"></main>
 
 <div id="toast"><span id="toastMsg"></span><button class="btn" id="toastBtn" hidden></button></div>
+
+<!-- CDU の POS REPORT をカメラで読み取る -->
+<div id="cdu" hidden>
+  <div class="hoff-box">
+    <div class="hoff-head">
+      <b>CDU 読込</b><span id="cduInfo"></span>
+      <span class="spacer"></span>
+      <button class="btn" id="cduClose">閉じる</button>
+    </div>
+    <div id="cduBody"></div>
+    <p id="cduMsg"></p>
+  </div>
+</div>
 
 <!-- 引き継ぎ（QR コード / ファイル）。ネットワークもペアリングも使わない -->
 <div id="hoff" hidden>
@@ -1296,6 +1330,282 @@ function drawQR(canvas, text, px){
   return n;
 }
 
+/* =======================================================================
+   CDU の POS REPORT をカメラで読む
+   画面の文字を OCR して POS / ATA / ALT / TEMP / WIND を取り出し、
+   POS に一致する WPT の ATO / ALT / SAT / SPOT WND に入れる。
+   OCR 一式（約 9MB）は vendor/ocr/ に同梱し、初回だけ端末に保存する。
+   ======================================================================= */
+const OCR_BASE = 'vendor/ocr/';
+/* OCR の部品は Web Worker の中から読まれる。相対パスだと worker 側の基準で
+   解決されて迷子になるので、必ず絶対 URL にして渡す。 */
+const ocrUrl = (name) => new URL(OCR_BASE + (name||''), location.href).href;
+
+/* --- 読み取った文字列から 5 項目を拾う（OCR に依存しないので単体で試せる） --- */
+function parseCdu(text){
+  const t = String(text||'').toUpperCase().replace(/[｜|]/g,'/');
+  const out = {pos:null, ata:null, alt:null, temp:null, wind:null};
+
+  /* ATA / ETA は 4 桁 + Z。先に出てくる方が ATA。
+     小文字の z は OCR が 2 と読むことがあるので [Z2] まで許す。 */
+  let times = [...t.matchAll(/(\d{4})\s*[Z2]\b/g)].map(m => m[1]);
+  if(!times.length){
+    /* Z が落ちた場合は ATA ラベルの後ろの 4 桁を採る */
+    const only = /\bATA\b\D{0,8}(\d{4})/.exec(t);
+    if(only) times = [only[1]];
+  }
+  if(times.length) out.ata = times[0];
+
+  /* ALT: FL190 / FL 190 */
+  let m = /FL\s*(\d{2,3})/.exec(t);
+  if(m) out.alt = m[1];
+
+  /* TEMP: -25°C / -25 C / M25 C */
+  m = /([-+M]?\s*\d{1,3})\s*°?\s*C\b/.exec(t);
+  if(m) out.temp = m[1].replace(/\s+/g,'').replace(/^M/,'-');
+
+  /* WIND: 180°/30KT */
+  m = /(\d{2,3})\s*°?\s*\/\s*(\d{1,3})\s*KT/.exec(t);
+  if(m) out.wind = m[1].padStart(3,'0') + '/' + m[2];
+
+  /* POS: まず "POS" と書かれた行の右端の語。見出し（POS REPORT）と
+     POS FUEL の行は除く。見つからなければ ATA の行とその直前から拾う。 */
+  const lines = t.split(/\r?\n/);
+  const LABEL = /^(POS|ATA|ALT|EST|ETA|NEXT|TEMP|WIND|REPORT|FUEL|KT|Z|SAT|WPT|OF)$/;
+  const pick = s => ((s||'').replace(/FL\s*\d{2,3}/g,' ').match(/\b[A-Z][A-Z0-9]{1,6}\b/g) || [])
+                      .filter(n => !LABEL.test(n));
+  for(const l of lines){
+    if(/REPORT/.test(l) || /POS\s*FUEL/.test(l)) continue;
+    const head = /\bPOS\b(.*)$/.exec(l);
+    if(!head) continue;
+    const hit = pick(head[1]);
+    if(hit.length){ out.pos = hit[hit.length-1]; break; }
+  }
+  if(!out.pos && out.ata){
+    let at = lines.findIndex(l => new RegExp(out.ata + '\\s*[Z2]?').test(l));
+    for(let k = at; k >= 0 && k > at - 3; k--){
+      const hit = pick((lines[k]||'').replace(new RegExp(out.ata + '\\s*[Z2]?','g'),' '));
+      if(hit.length){ out.pos = hit[0]; break; }
+    }
+  }
+  return out;
+}
+
+/* 読み取った POS を、いま開いているプランの WPT に当てる。
+   OCR の誤読を拾うため、1 文字違いまでは許容する。 */
+function matchWpt(pos){
+  if(!pos || !STATE.wps.length) return -1;
+  const p = String(pos).toUpperCase();
+  let exact = STATE.wps.findIndex(w => String(w.name).toUpperCase() === p);
+  if(exact >= 0) return exact;
+  /* O/0 I/1 S/5 B/8 の取り違えを直してからもう一度 */
+  const norm = x => String(x).toUpperCase().replace(/O/g,'0').replace(/I/g,'1')
+                     .replace(/S/g,'5').replace(/B/g,'8');
+  exact = STATE.wps.findIndex(w => norm(w.name) === norm(p));
+  if(exact >= 0) return exact;
+  /* 1 文字違い（長さが同じもののみ） */
+  let best = -1, bestD = 99;
+  STATE.wps.forEach((w,i)=>{
+    const n = String(w.name).toUpperCase();
+    if(n.length !== p.length) return;
+    let d = 0;
+    for(let k=0;k<n.length;k++) if(n[k] !== p[k]) d++;
+    if(d < bestD){ bestD = d; best = i; }
+  });
+  return bestD <= 1 ? best : -1;
+}
+
+/* --- 画面 --- */
+let cduStream = null, cduWorker = null;
+function cduSay(m){ $('#cduMsg').innerHTML = m || ''; }
+function cduStop(){
+  if(cduStream){ cduStream.getTracks().forEach(t=>t.stop()); cduStream = null; }
+}
+function cduClose(){
+  cduStop();
+  $('#cdu').hidden = true;
+  $('#cduBody').innerHTML = '';
+  cduSay('');
+}
+async function cduOpen(){
+  if(!STATE.wps.length){ setStatus('先にプランを読み込んでください','err'); return; }
+  $('#cduInfo').textContent = planPrint(STATE.info, STATE.wps);
+  $('#cdu').hidden = false;
+  await cduCamera();
+}
+async function cduCamera(){
+  cduStop();
+  $('#cduBody').innerHTML =
+    '<div class="hoff-step" id="cduStep">カメラを起動しています…</div>' +
+    '<video id="cduVideo" playsinline muted></video>' +
+    '<div class="cdu-row"><button class="btn big" id="cduShoot">撮影して読み取る</button></div>';
+  cduSay('CDU の <b>POS REPORT</b> の画面いっぱいにカメラを向けて撮影してください。');
+  const video = $('#cduVideo');
+  try{
+    cduStream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'environment', width:{ideal:1920}, height:{ideal:1080}}, audio:false});
+    video.srcObject = cduStream;
+    await video.play();
+    $('#cduStep').textContent = '画面が大きく写るように近づけてください';
+  }catch(err){
+    $('#cduStep').textContent = 'カメラを使えません';
+    cduSay('カメラを使えませんでした（' + (err && err.name || 'エラー') + '）。<br>' +
+           '設定でカメラを許可してください。');
+    return;
+  }
+  $('#cduShoot').onclick = ()=> cduShoot(video);
+  /* 文字認識の部品はまだ端末に無ければ初回だけ取りに行く。機内で困らないよう先に知らせる */
+  if(!(await ocrCached())){
+    cduSay('CDU の <b>POS REPORT</b> の画面いっぱいにカメラを向けて撮影してください。<br>' +
+      (navigator.onLine === false
+        ? '<b style="color:var(--late)">文字認識の部品（約 9MB）がまだ端末にありません。</b>電波のある所で一度使っておくと、次からは機内でも読めます。'
+        : '初回だけ文字認識の部品（約 9MB）を取り込みます。取り込めば次からは機内でも使えます。'));
+  }
+}
+
+/* 撮った絵を読みやすくする: 灰色化 → コントラストを立てる */
+function cduPrep(video){
+  const w = video.videoWidth, h = video.videoHeight;
+  /* 長辺 1600px を狙う。小さい絵は 2 倍まで引き伸ばす（細い文字が読めるようになる） */
+  const scale = Math.min(2, 1600 / Math.max(w, h));
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(w * scale); cv.height = Math.round(h * scale);
+  const g = cv.getContext('2d', {willReadFrequently:true});
+  g.drawImage(video, 0, 0, cv.width, cv.height);
+  const img = g.getImageData(0, 0, cv.width, cv.height), d = img.data;
+  let sum = 0;
+  for(let k=0;k<d.length;k+=4){
+    const v = (d[k]*0.299 + d[k+1]*0.587 + d[k+2]*0.114);
+    d[k] = d[k+1] = d[k+2] = v; sum += v;
+  }
+  const mean = sum / (d.length/4);
+  /* 文字は画面の少数派。明るい側が少なければ「黒地に白文字」（＝CDU）なので反転し、
+     暗い側が少なければ紙や明るい画面なのでそのまま。どちらでも白地に黒文字にする。 */
+  let bright = 0;
+  for(let k=0;k<d.length;k+=4) if(d[k] > mean) bright++;
+  const invert = bright <= (d.length/4)/2;
+  for(let k=0;k<d.length;k+=4){
+    const hi = d[k] > mean;
+    const v = (invert ? hi : !hi) ? 0 : 255;   /* 少数派＝文字 → 黒に */
+    d[k] = d[k+1] = d[k+2] = v;
+  }
+  g.putImageData(img, 0, 0);
+  return cv;
+}
+
+async function cduShoot(video){
+  const shot = cduPrep(video);
+  cduStop();
+  $('#cduBody').innerHTML = '<div class="hoff-step" id="cduStep">読み取っています…</div>';
+  $('#cduBody').appendChild(shot); shot.id = 'cduShot';
+  cduSay('文字を読んでいます。数秒かかります。');
+  let text = '';
+  try{
+    text = await cduOcr(shot);
+  }catch(err){
+    console.error(err);
+    $('#cduStep').textContent = '読み取れませんでした';
+    cduSay('文字認識を動かせませんでした（' + (err && err.message || 'エラー') + '）。<br>' +
+           '<button class="btn" id="cduRetry" style="margin-top:8px">もう一度撮る</button>');
+    const r = $('#cduRetry'); if(r) r.onclick = cduCamera;
+    return;
+  }
+  cduReview(parseCdu(text), text);
+}
+
+/* Tesseract を読み込んで 1 枚だけ読む */
+async function cduOcr(canvas){
+  if(!window.Tesseract){
+    if(!navigator.onLine){
+      const has = await ocrCached();
+      if(!has) throw new Error('OCR の部品が端末にありません。一度オンラインで CDU 読込を開いてください');
+    }
+    await loadScript(OCR_BASE + 'tesseract.min.js');
+  }
+  /* workerBlobURL を切って本物の URL から worker を作る。
+     blob: から作ると WebAssembly 本体の置き場所を見失う（読み込みが止まる）。 */
+  const worker = await Tesseract.createWorker('eng', 1, {
+    workerPath:   ocrUrl('worker.min.js'),
+    workerBlobURL: false,
+    corePath:     ocrUrl(),
+    langPath:     ocrUrl('lang'),
+    gzip: true,
+    logger: m => {
+      const st = $('#cduStep');
+      if(st && m && m.status) st.textContent = m.status + ' ' + Math.round((m.progress||0)*100) + '%';
+    }
+  });
+  try{
+    await worker.setParameters({
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/.:-+°<> ',
+      preserve_interword_spaces: '1'
+    });
+    const {data} = await worker.recognize(canvas);
+    return data.text || '';
+  }finally{
+    worker.terminate().catch(()=>{});
+  }
+}
+async function ocrCached(){
+  try{
+    const c = await caches.open('navlog-ocr');
+    return !!(await c.match(ocrUrl('tesseract.min.js')));
+  }catch(e){ return false; }
+}
+
+/* 読み取り結果を見せてから反映する */
+function cduReview(r, raw){
+  const idx = matchWpt(r.pos);
+  const w   = idx >= 0 ? STATE.wps[idx] : null;
+  const row = (k, v, to) =>
+    '<div class="k">' + k + '</div>' +
+    '<div class="v' + (v ? '' : ' miss') + '">' + esc(v || '読み取れず') + '</div>' +
+    '<div class="to">' + esc(to || '') + '</div>';
+  $('#cduBody').innerHTML =
+    '<div class="hoff-step" id="cduStep">' +
+      (w ? ('WPT ' + String(w.seq).padStart(2,'0') + ' ' + esc(w.name) + ' に入れます')
+         : 'POS に一致する WPT が見つかりません') + '</div>' +
+    '<div class="cdu-grid">' +
+      row('POS',  r.pos,  w ? ('→ ' + w.name) : '') +
+      row('ATA',  r.ata,  '→ ATO') +
+      row('ALT',  r.alt ? ('FL' + r.alt) : null, '→ ALT') +
+      row('TEMP', r.temp ? (r.temp + '°C') : null, '→ SAT') +
+      row('WIND', r.wind ? (r.wind + 'KT') : null, '→ SPOT WND') +
+    '</div>' +
+    '<div class="cdu-row">' +
+      (w ? '<button class="btn big" id="cduApply">反映する</button>' : '') +
+      '<button class="btn" id="cduAgain">もう一度撮る</button>' +
+    '</div>';
+  cduSay(w ? '内容を確かめてから反映してください。'
+           : '読み取った POS「' + esc(r.pos || '—') + '」がプランにありません。撮り直すか、手で入れてください。');
+  const again = $('#cduAgain'); if(again) again.onclick = cduCamera;
+  const ap = $('#cduApply');
+  if(ap) ap.onclick = ()=> cduApply(idx, r);
+  console.log('[cdu] OCR text:\n' + raw);
+}
+
+function cduApply(idx, r){
+  const w = STATE.wps[idx];
+  if(!w) return;
+  const set = (f, v) => {
+    if(!v) return;
+    const el = document.querySelector('input[data-f="' + f + '"][data-i="' + idx + '"]');
+    w[f] = v;
+    if(el) el.value = v;
+  };
+  set('ato',    r.ata);
+  set('alt_in', r.alt);
+  set('sat',    r.temp ? fmtSat(r.temp) : '');
+  set('spot',   r.wind ? fmtWind(r.wind) : '');
+  const strip = $('#s'+idx);
+  if(strip) strip.classList.toggle('flagged', !!(w.ato || w.rmg));
+  recompute();
+  flushSave();
+  cduClose();
+  resumeAt({i:idx, f:'rmg'}, null);
+  toast('CDU から取り込みました — ' + String(w.seq).padStart(2,'0') + ' ' + w.name, {ms:6000});
+}
+
 /* ---- 引き継ぎ画面 ----------------------------------------------------- */
 let hoffTimer = null, hoffStream = null, hoffRaf = 0;
 
@@ -1506,6 +1816,9 @@ $('#btnNowTo').onclick= ()=>{ const d=new Date();
 $('#btnCsv').onclick  = ()=> STATE.wps.length && download(stamp()+'.csv', toCSV(), 'text/csv;charset=utf-8');
 $('#btnSave').onclick = ()=> STATE.wps.length && download(stamp()+'.json',
   JSON.stringify(buildHandoff(), null, 1), 'application/json');
+$('#btnCdu').onclick   = cduOpen;
+$('#cduClose').onclick = cduClose;
+$('#cdu').addEventListener('click', e=>{ if(e.target.id === 'cdu') cduClose(); });
 $('#btnHandoff').onclick = hoffOpen;
 $('#hoffClose').onclick  = hoffClose;
 $('#hoffSend').onclick   = hoffShowSend;
@@ -1513,7 +1826,11 @@ $('#hoffRecv').onclick   = hoffShowRecv;
 $('#hoffFile').onclick   = ()=>{ hoffStop(); hoffTab('hoffFile');
   $('#hoffBody').innerHTML = ''; handoffFile(); };
 $('#hoff').addEventListener('click', e=>{ if(e.target.id === 'hoff') hoffClose(); });
-document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && !$('#hoff').hidden) hoffClose(); });
+document.addEventListener('keydown', e=>{
+  if(e.key !== 'Escape') return;
+  if(!$('#cdu').hidden) cduClose();
+  else if(!$('#hoff').hidden) hoffClose();
+});
 $('#btnLoad').onclick = ()=> $('#fileJson').click();
 $('#fileJson').onchange = async e=>{
   const f = e.target.files[0];
