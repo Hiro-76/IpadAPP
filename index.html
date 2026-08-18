@@ -31,6 +31,7 @@
   --late:#ff7b6b;
   --etp:#c78bff;         /* equal time point (ETP) — 目立たせる */
   --xfer:#48bbe8;        /* 引き継ぎ */
+  --etops:#ff86b3;       /* ETOPS 代替空港 */
   --text:#dbe7f3;
   --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.35);
 }
@@ -45,6 +46,7 @@ html[data-theme="day"]{
   --late:#c0392b;
   --etp:#7314c4;
   --xfer:#0b6ea8;
+  --etops:#b0006a;
   --text:#16202b;
   --shadow:0 1px 0 rgba(0,0,0,.02), 0 6px 18px rgba(20,40,60,.10);
 }
@@ -85,14 +87,22 @@ header{
 /* ETP / LDG の ETA を T/O の隣に出す（タップでその WPT へ飛ぶ） */
 #etaBox,#etopsBox{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 #etaBox:empty,#etopsBox:empty{display:none}
-/* ETOPS 代替空港の ET / LT（プランからそのまま） */
-.etops{
-  display:flex;align-items:baseline;gap:8px;
-  background:var(--panel2);border:1px solid var(--rule);border-radius:8px;padding:5px 10px;
+/* ETOPS 代替空港の ET / LT（プランからそのまま）。
+   時刻の性格が他と違うので、色も大きさも分けて一目で区別できるようにする。 */
+#etopsBox{gap:7px}
+.etops-tag{
+  font-size:10px;font-weight:700;letter-spacing:.18em;color:var(--etops);
+  border:1px solid var(--etops);border-radius:999px;padding:4px 9px;white-space:nowrap;
 }
-.etops b{font-size:12.5px;letter-spacing:.12em;color:var(--plan);font-weight:700}
-.etops span{font-size:15px;font-weight:700;letter-spacing:.06em;color:var(--text)}
-.etops i{font-style:normal;font-size:9.5px;letter-spacing:.1em;color:var(--plan);opacity:.7}
+.etops{
+  display:flex;align-items:baseline;gap:9px;
+  background:rgba(255,134,179,.10);border:1.5px solid var(--etops);
+  border-radius:9px;padding:6px 13px;
+}
+html[data-theme="day"] .etops{background:rgba(176,0,106,.07)}
+.etops b{font-size:15px;letter-spacing:.1em;color:var(--etops);font-weight:700}
+.etops span{font-size:20px;font-weight:700;letter-spacing:.06em;color:var(--text)}
+.etops i{font-style:normal;font-size:10px;letter-spacing:.1em;color:var(--etops);opacity:.85}
 .eta{
   display:flex;align-items:baseline;gap:7px;cursor:pointer;
   background:var(--panel2);border:1px solid var(--rule);border-radius:8px;padding:5px 10px;
@@ -956,7 +966,7 @@ function renderEtops(){
   const box = $('#etopsBox');
   if(!box) return;
   const list = (STATE.info && STATE.info.etops) || [];
-  box.innerHTML = list.map(e =>
+  box.innerHTML = (list.length ? '<span class="etops-tag">ETOPS</span>' : '') + list.map(e =>
     '<div class="etops" title="' + esc(e.ap) + ' — ET ' + esc(e.et) + ' / LT ' + esc(e.lt) + '">' +
     '<b>' + esc(e.ap) + '</b><i>ET</i><span>' + esc(e.et) + '</span>' +
     '<i>LT</i><span>' + esc(e.lt) + '</span></div>').join('');
@@ -1471,7 +1481,19 @@ $('#fileJson').onchange = async e=>{
     toast('引き継ぎました — 記入済み ' + n + ' WPT。続きの欄にカーソルを置きました', {ms:7000});
   }catch(err){ setStatus('JSON を読み込めませんでした: '+err.message,'err'); }
 };
+/* PDF / 印刷の既定ファイル名は document.title が使われる。
+   「NH + 便名の数字 + 日付」にする（ANA0159 18JUL26 → "NH159 18JUL26"）。 */
+function printName(){
+  const f = String((STATE.info && STATE.info.flight) || '').toUpperCase();
+  const m = /^([A-Z]{2,3})0*(\d+)$/.exec(f);
+  const no = m ? (m[1] === 'ANA' ? 'NH' : m[1]) + m[2] : (f || 'NAVLOG');
+  const d  = (STATE.info && STATE.info.date) || '';
+  return (no + (d ? ' ' + d : '')).trim();
+}
+let titleBeforePrint = null;
 function preparePrint(){
+  if(titleBeforePrint === null) titleBeforePrint = document.title;
+  document.title = printName();
   const i = STATE.info;
   $('#phTitle').textContent = [i.flight||'NAVLOG', (i.dep||'')+'-'+(i.dest||''), i.reg||'', i.date||''].filter(Boolean).join('   ');
   const d = new Date();
@@ -1504,6 +1526,9 @@ function preparePrint(){
   });
 }
 window.addEventListener('beforeprint', preparePrint);
+window.addEventListener('afterprint', ()=>{
+  if(titleBeforePrint !== null){ document.title = titleBeforePrint; titleBeforePrint = null; }
+});
 $('#btnPrint').onclick = ()=>{
   if(!STATE.wps.length){ setStatus('先にプランを読み込んでください','err'); return; }
   preparePrint();
