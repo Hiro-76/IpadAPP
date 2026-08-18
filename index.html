@@ -384,8 +384,8 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
     <button class="btn big" id="btnPdfLoad" title="PDF ファイルを読み込む">📄 PDF読込</button>
     <button class="btn" id="btnStd" title="プランの STD を T/O に入れる">STD 呼出</button>
     <button class="btn big now-to" id="btnNowTo" title="現在の UTC を T/O に入れる">NOW</button>
-    <label class="toggle" title="ATO を入れた地点以降の ETO を、その実績時刻を起点に引き直します">
-      <input type="checkbox" id="reflow"> ATO 基準で ETO 更新
+    <label class="toggle" title="ATO を入れた地点より後ろの ETO を、その実績時刻を起点に引き直します（既定で ON。外すとプラン通りの ETO に戻ります）">
+      <input type="checkbox" id="reflow" checked> ATO 基準で ETO 更新
     </label>
     <span class="spacer"></span>
     <button class="btn" id="btnCsv">CSV</button>
@@ -907,10 +907,15 @@ function onBlur(e){
   }
 }
 
-/* ETO = T/O + CTME  (optionally re-based on the latest ATO) */
+/* ETO = T/O + CTME
+   直前の「基準」からの経過時間で引く。基準になるのは
+     ・手入力した ETO
+     ・ATO 基準で ETO 更新 が ON のときは、記入済みの ATO（実績）
+   のうち、その WPT から見て一番近い手前のもの。                          */
 function recompute(){
-  // 各 WP について、直前の手修正 ETO（または T/O）を基準に計算
   const to = clockToMin($('#toff').value);
+  const reflow = $('#reflow').checked;
+  const atoAbs = [];     /* 各 WP の ATO を絶対分（日跨ぎ込み）に直したもの */
   const eta = [];        /* ヘッダーに出す ETP / LDG の ETA */
 
   STATE.wps.forEach((w,i)=>{
@@ -941,11 +946,13 @@ function recompute(){
       if(!editing) etoInp.value = minToClock(etoAbs).replace(':','');
       etoInp.classList.add('manual');
     }else{
-      // 手前を遡って最後の手修正WPを探す
+      // 手前を遡って、一番近い基準（手入力 ETO / ATO）を探す
       let baseEtoMin = to, baseCtmeMin = 0;
       for(let j=i-1;j>=0;j--){
-        if(STATE.wps[j].eto_manual != null){
-          baseEtoMin = STATE.wps[j].eto_manual;
+        const useAto = reflow && atoAbs[j] != null;
+        if(useAto || STATE.wps[j].eto_manual != null){
+          /* 同じ WPT に両方あるときは実績（ATO）を優先する */
+          baseEtoMin = useAto ? atoAbs[j] : STATE.wps[j].eto_manual;
           baseCtmeMin = STATE.wps[j].ctmeMin || 0;
           break;
         }
@@ -962,17 +969,19 @@ function recompute(){
 
     const atoMin = clockToMin(w.ato);
     if(atoMin!=null && etoAbs!=null){
-      // pick the day that puts ATO nearest to ETO
+      // ETO に一番近い日付を選ぶ（日跨ぎ対応）
       let best=null;
       for(let k=-1;k<=1;k++){
         const cand = atoMin + (dayOffset(etoAbs)+k)*1440;
         if(best===null || Math.abs(cand-etoAbs) < Math.abs(best-etoAbs)) best = cand;
       }
+      atoAbs[i] = best;                       /* 以降の WPT の基準に使う */
       const diff = best - etoAbs;
       dEl.textContent = (diff>0?'+':'') + diff;
       dEl.className = 'delta ' + (diff>0?'late':(diff<0?'early':''));
 
     }else{
+      if(atoMin!=null) atoAbs[i] = atoMin;    /* ETO が引けない WPT でも基準にはできる */
       dEl.textContent = ''; dEl.className = 'delta';
     }
 
@@ -1682,7 +1691,7 @@ function saveSession(){
   if(!STATE.wps.length) return;
   try{
     localStorage.setItem(LS_SESSION, JSON.stringify({
-      v: 1,
+      v: 2,
       savedAt: new Date().toISOString(),
       toff: $('#toff').value,
       reflow: $('#reflow').checked,
@@ -1720,7 +1729,8 @@ function restoreSession(){
   if(!d || !Array.isArray(d.wps) || !d.wps.length) return false;
   const savedAt = d.savedAt ? new Date(d.savedAt) : null;
   if(d.toff) $('#toff').value = d.toff;
-  $('#reflow').checked = !!d.reflow;
+  /* v1 の頃はこの項目が効いていなかったので、古い保存からは既定の ON にする */
+  $('#reflow').checked = (d.v >= 2) ? !!d.reflow : true;
   load({info: d.info || {}, wps: d.wps});
   resumeAt(d.lastFocus, d.scrollY);
   toast('前回の作業を復元しました' + (savedAt && !isNaN(savedAt) ?
