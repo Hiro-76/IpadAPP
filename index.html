@@ -965,15 +965,50 @@ function recompute(){
   });
 
   renderEta(eta);
+  renderEtops();
 }
 
-/* ETOPS 代替空港の ET / LT をヘッダーに表示（プランの値をそのまま） */
+/* ETOPS 代替空港の ET (EARLIEST) / LT (LATEST)。
+   プランの値は STD を前提に作られているので、実際の T/O との差だけずらす。 */
+function etopsShift(){
+  const std = clockToMin(STATE.info && STATE.info.std);
+  const to  = clockToMin($('#toff').value);
+  if(std == null || to == null) return 0;
+  let d = to - std;
+  if(d >  720) d -= 1440;      /* 日をまたぐ入力でも ±12 時間に収める */
+  if(d < -720) d += 1440;
+  return d;
+}
+function shiftClock(v, d){
+  const m = clockToMin(v);
+  return (m == null) ? String(v||'') : minToClock(m + d).replace(':','');
+}
+function fmtShift(d){
+  const sign = d < 0 ? '-' : '+', a = Math.abs(d);
+  return sign + (a < 60 ? a + '分' : Math.floor(a/60) + '時間' + (a%60 ? (a%60)+'分' : ''));
+}
+/* 表示用（ずらした後）の一覧。印刷ヘッダーからも使う。 */
+function etopsList(){
+  const d = etopsShift();
+  return ((STATE.info && STATE.info.etops) || []).map(e => ({
+    ap: e.ap, et: shiftClock(e.et, d), lt: shiftClock(e.lt, d),
+    planEt: e.et, planLt: e.lt, shift: d
+  }));
+}
 function renderEtops(){
   const box = $('#etopsBox');
   if(!box) return;
-  const list = (STATE.info && STATE.info.etops) || [];
-  box.innerHTML = (list.length ? '<span class="etops-tag">ETOPS</span>' : '') + list.map(e =>
-    '<div class="etops" title="' + esc(e.ap) + ' — ET ' + esc(e.et) + ' / LT ' + esc(e.lt) + '">' +
+  const list = etopsList();
+  const d = list.length ? list[0].shift : 0;
+  const tag = 'ETOPS' + (d ? ' ' + fmtShift(d) : '');
+  const tagTitle = d
+    ? 'プランの STD ' + esc((STATE.info.std||'')) + ' に対して T/O が ' + fmtShift(d) +
+      'ずれているので、ET / LT も同じだけずらして表示しています'
+    : 'ET = EARLIEST TIME / LT = LATEST TIME（プランのまま）';
+  box.innerHTML = (list.length ? '<span class="etops-tag" title="' + tagTitle + '">' + tag + '</span>' : '') +
+    list.map(e =>
+    '<div class="etops" title="' + esc(e.ap) + ' — EARLIEST ' + esc(e.et) + ' / LATEST ' + esc(e.lt) +
+      (e.shift ? '（プラン ' + esc(e.planEt) + ' / ' + esc(e.planLt) + '）' : '') + '">' +
     '<b>' + esc(e.ap) + '</b><i>ET</i><span>' + esc(e.et) + '</span>' +
     '<i>LT</i><span>' + esc(e.lt) + '</span></div>').join('');
 }
@@ -1513,8 +1548,7 @@ function preparePrint(){
     (function(){
       const e = [...document.querySelectorAll('#etaBox .eta')]
         .map(b => b.querySelector('b').textContent + ' ' + b.querySelector('span').textContent);
-      const x = ((STATE.info && STATE.info.etops) || [])
-        .map(o => o.ap + ' ' + o.et + '/' + o.lt);
+      const x = etopsList().map(o => o.ap + ' ' + o.et + '/' + o.lt);
       return (e.length ? '   ·   ' + e.join('   ') : '') +
              (x.length ? '   ·   ETOPS ' + x.join('   ') : '');
     })();
