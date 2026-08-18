@@ -78,11 +78,11 @@ header{
 .spacer{flex:1 1 auto}
 
 .ctrls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
-.field{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--rule);border-radius:8px;padding:5px 9px}
-.field label{font-size:10.5px;letter-spacing:.14em;color:var(--plan);text-transform:uppercase}
+.field{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--rule);border-radius:9px;padding:6px 13px}
+.field label{font-size:13px;font-weight:700;letter-spacing:.1em;color:var(--plan);text-transform:uppercase}
 .field input{
-  width:5.6em;background:transparent;border:0;outline:none;
-  color:var(--ink);font-size:17px;font-weight:700;letter-spacing:.08em;text-align:center;
+  width:4.6em;background:transparent;border:0;outline:none;
+  color:var(--ink);font-size:20px;font-weight:700;letter-spacing:.06em;text-align:center;
 }
 /* ETP / LDG の ETA を T/O の隣に出す（タップでその WPT へ飛ぶ） */
 #etaBox,#etopsBox{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -104,13 +104,13 @@ html[data-theme="day"] .etops{background:rgba(176,0,106,.07)}
 .etops span{font-size:20px;font-weight:700;letter-spacing:.06em;color:var(--text)}
 .etops i{font-style:normal;font-size:10px;letter-spacing:.1em;color:var(--etops);opacity:.85}
 .eta{
-  display:flex;align-items:baseline;gap:7px;cursor:pointer;
-  background:var(--panel2);border:1px solid var(--rule);border-radius:8px;padding:5px 10px;
+  display:flex;align-items:baseline;gap:9px;cursor:pointer;
+  background:var(--panel2);border:1px solid var(--rule);border-radius:9px;padding:6px 13px;
   transition:border-color .15s;
 }
 .eta:hover{border-color:var(--ink)}
-.eta b{font-size:10.5px;letter-spacing:.14em;color:var(--plan);font-weight:400}
-.eta span{font-size:17px;font-weight:700;letter-spacing:.08em;color:var(--ink)}
+.eta b{font-size:15px;letter-spacing:.1em;color:var(--plan);font-weight:700}
+.eta span{font-size:20px;font-weight:700;letter-spacing:.06em;color:var(--ink)}
 .eta.etp b{color:var(--etp)}
 .eta.done span{color:var(--plan)}   /* 通過済み（ATO 記入済み） */
 
@@ -121,15 +121,22 @@ html[data-theme="day"] .etops{background:rgba(176,0,106,.07)}
 .btn:hover{border-color:var(--plan)}
 .btn:active{transform:translateY(1px)}
 .btn.primary{border-color:var(--ink);color:var(--ink)}
-/* T/O に現在時刻を入れるボタン: 出発時に必ず押すので大きく目立たせる */
-.btn.now-to{
-  background:var(--ok);border-color:var(--ok);color:#06210f;
-  font-size:15px;font-weight:700;letter-spacing:.14em;padding:10px 20px;
-}
+/* よく押すボタンは大きさをそろえる（NOW / PDF読込 / PDF保存 / 引き継ぎ） */
+.btn.big{font-size:15px;font-weight:700;letter-spacing:.12em;line-height:1.25;
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  min-height:41px;padding:6px 20px;box-sizing:border-box}
+/* Day / Night 切り替え: 絵柄が小さいと分かりにくいので大きく、文字も添える */
+.btn.theme{letter-spacing:.08em}
+.btn.theme i{font-style:normal;font-size:24px;line-height:1}
+.btn.theme span{font-size:13px}
+html[data-theme="day"] .btn.theme{border-color:var(--ink);color:var(--ink)}
+html:not([data-theme="day"]) .btn.theme{border-color:var(--ink);color:var(--ink)}
+
+/* T/O に現在時刻を入れるボタン: 出発時に必ず押すので色でも目立たせる */
+.btn.now-to{background:var(--ok);border-color:var(--ok);color:#06210f}
 html[data-theme="day"] .btn.now-to{color:#fff}
 /* 引き継ぎ: 他と役割が違うので色と太さで区別する */
-.btn.xfer{border-color:var(--xfer);color:var(--xfer);font-weight:700;
-  padding:8px 14px;letter-spacing:.1em}
+.btn.xfer{border-color:var(--xfer);color:var(--xfer)}
 .btn.xfer:hover{border-color:var(--xfer);background:rgba(72,187,232,.12)}
 .btn.now-to:hover{border-color:var(--ok);filter:brightness(1.08)}
 .btn:focus-visible,input:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
@@ -375,19 +382,19 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
     <!-- ETP / LDG の ETA と ETOPS 空港。スクロールしなくても常に見える -->
     <div id="etaBox"></div>
     <div id="etopsBox"></div>
-    <button class="btn" id="btnPdfLoad" title="PDF ファイルを読み込む">📄 PDF読込</button>
+    <button class="btn big" id="btnPdfLoad" title="PDF ファイルを読み込む">📄 PDF読込</button>
     <button class="btn" id="btnStd" title="プランの STD を T/O に入れる">STD 呼出</button>
-    <button class="btn now-to" id="btnNowTo" title="現在の UTC を T/O に入れる">NOW</button>
+    <button class="btn big now-to" id="btnNowTo" title="現在の UTC を T/O に入れる">NOW</button>
     <label class="toggle" title="ATO を入れた地点以降の ETO を、その実績時刻を起点に引き直します">
       <input type="checkbox" id="reflow"> ATO 基準で ETO 更新
     </label>
     <span class="spacer"></span>
     <button class="btn" id="btnCsv">CSV</button>
     <button class="btn" id="btnSave">JSON保存</button>
-    <button class="btn xfer" id="btnHandoff" title="記入内容を他の iPad へ渡す / 受け取る">⇄ 引き継ぎ</button>
+    <button class="btn big xfer" id="btnHandoff" title="記入内容を他の iPad へ渡す / 受け取る">⇄ 引き継ぎ</button>
     <button class="btn" id="btnLoad">JSON読込</button>
-    <button class="btn primary" id="btnPrint" title="印刷ダイアログで「PDFとして保存」を選んでください">PDF保存</button>
-    <button class="btn" id="btnTheme">☀︎</button>
+    <button class="btn big primary" id="btnPrint" title="印刷ダイアログで「PDFとして保存」を選んでください">PDF保存</button>
+    <button class="btn big theme" id="btnTheme" title="画面の明るさを切り替える"><i>☀</i><span>DAY</span></button>
     <button class="btn" id="btnNew">別のプラン</button>
   </div>
 </header>
@@ -1536,7 +1543,10 @@ $('#btnPrint').onclick = ()=>{
 };
 function applyTheme(mode){
   document.documentElement.setAttribute('data-theme', mode);
-  $('#btnTheme').textContent = mode==='day' ? '☾' : '☀︎';
+  /* 押すとどちらになるかを、絵と文字の両方で示す */
+  const b = $('#btnTheme');
+  b.innerHTML = mode==='day' ? '<i>☾</i><span>NIGHT</span>' : '<i>☀</i><span>DAY</span>';
+  b.title = mode==='day' ? '夜間表示に切り替える' : '昼間表示に切り替える';
   const mt = document.querySelector('meta[name="theme-color"]');
   if(mt) mt.setAttribute('content', mode==='day' ? '#ffffff' : '#151d27');
 }
