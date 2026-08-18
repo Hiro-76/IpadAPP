@@ -82,6 +82,28 @@ header{
   width:5.6em;background:transparent;border:0;outline:none;
   color:var(--ink);font-size:17px;font-weight:700;letter-spacing:.08em;text-align:center;
 }
+/* ETP / LDG の ETA を T/O の隣に出す（タップでその WPT へ飛ぶ） */
+#etaBox,#etopsBox{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#etaBox:empty,#etopsBox:empty{display:none}
+/* ETOPS 代替空港の ET / LT（プランからそのまま） */
+.etops{
+  display:flex;align-items:baseline;gap:8px;
+  background:var(--panel2);border:1px solid var(--rule);border-radius:8px;padding:5px 10px;
+}
+.etops b{font-size:12.5px;letter-spacing:.12em;color:var(--plan);font-weight:700}
+.etops span{font-size:15px;font-weight:700;letter-spacing:.06em;color:var(--text)}
+.etops i{font-style:normal;font-size:9.5px;letter-spacing:.1em;color:var(--plan);opacity:.7}
+.eta{
+  display:flex;align-items:baseline;gap:7px;cursor:pointer;
+  background:var(--panel2);border:1px solid var(--rule);border-radius:8px;padding:5px 10px;
+  transition:border-color .15s;
+}
+.eta:hover{border-color:var(--ink)}
+.eta b{font-size:10.5px;letter-spacing:.14em;color:var(--plan);font-weight:400}
+.eta span{font-size:17px;font-weight:700;letter-spacing:.08em;color:var(--ink)}
+.eta.etp b{color:var(--etp)}
+.eta.done span{color:var(--plan)}   /* 通過済み（ATO 記入済み） */
+
 .btn{
   background:var(--panel2);border:1px solid var(--rule);border-radius:8px;
   padding:7px 11px;cursor:pointer;letter-spacing:.06em;font-size:12px;color:var(--text);
@@ -334,6 +356,9 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
       <label for="toff">T/O (Z)</label>
       <input id="toff" inputmode="numeric" placeholder="0600" maxlength="5" autocomplete="off">
     </div>
+    <!-- ETP / LDG の ETA と ETOPS 空港。スクロールしなくても常に見える -->
+    <div id="etaBox"></div>
+    <div id="etopsBox"></div>
     <button class="btn" id="btnPdfLoad" title="PDF ファイルを読み込む">📄 PDF読込</button>
     <button class="btn" id="btnStd" title="プランの STD を T/O に入れる">STD 呼出</button>
     <button class="btn now-to" id="btnNowTo" title="現在の UTC を T/O に入れる">NOW</button>
@@ -475,6 +500,21 @@ function parseNavlog(raw){
   if((m=/\b([A-Z]{2}\d{3}[A-Z])\b/.exec(doc))) info.reg=m[1];
   if((m=/\b(\d{2}[A-Z]{3}\d{2})\b/.exec(doc))) info.date=m[1];
   if((m=/PLAN\s+B\/T\s+(\d+HR\d+MIN)\s+F\/T\s+(\d+HR\d+MIN)/.exec(doc))){ info.bt=m[1]; info.ft=m[2]; }
+
+  /* -ETP/EEP/EXP/ET.LT の節にある「空港/ET/LT」を拾う
+     例: CYWG/2213/0053  PANC/0013/0640  RJCC/0539/0640            */
+  info.etops = [];
+  const sec = /-\s*ETP\/EEP\/EXP\/ET\.?\s*LT([\s\S]*?)(?:\n\s*-[A-Z]|$)/.exec(doc);
+  if(sec){
+    const seen = new Set(), re = /\b([A-Z]{4})\/(\d{4})\/(\d{4})\b/g;
+    let e;
+    while((e = re.exec(sec[1]))){
+      const key = e[1]+e[2]+e[3];
+      if(seen.has(key)) continue;
+      seen.add(key);
+      info.etops.push({ap:e[1], et:e[2], lt:e[3]});
+    }
+  }
 
   // --- isolate the navigation-log block ---
   let start = all.findIndex(l => /^TC\s+GS\s+CTME/.test(l));
@@ -623,6 +663,7 @@ function load(parsed){
   if(i.std && !$('#toff').value) $('#toff').value = i.std;
   $('#loader').style.display = 'none';
   $('#legend').classList.add('on');
+  renderEtops();
   render();
   setStatus('');
   saveSession();      /* オフライン再起動用に localStorage へ退避 */
@@ -828,6 +869,7 @@ function onBlur(e){
 function recompute(){
   // 各 WP について、直前の手修正 ETO（または T/O）を基準に計算
   const to = clockToMin($('#toff').value);
+  const eta = [];        /* ヘッダーに出す ETP / LDG の ETA */
 
   STATE.wps.forEach((w,i)=>{
     const etoInp = document.querySelector('input[data-f="eto"][data-i="'+i+'"]');
@@ -891,6 +933,45 @@ function recompute(){
     }else{
       dEl.textContent = ''; dEl.className = 'delta';
     }
+
+    /* ヘッダー用: ETP と最終地点（LDG）の ETA を拾う */
+    if(etoAbs != null){
+      if(/^ETP\d?$/.test(w.name)) eta.push({label:w.name, kind:'etp', min:etoAbs, i, done:!!w.ato});
+      else if(i === STATE.wps.length - 1)
+        eta.push({label:'LDG', kind:'ldg', min:etoAbs, i, done:!!w.ato});
+    }
+  });
+
+  renderEta(eta);
+}
+
+/* ETOPS 代替空港の ET / LT をヘッダーに表示（プランの値をそのまま） */
+function renderEtops(){
+  const box = $('#etopsBox');
+  if(!box) return;
+  const list = (STATE.info && STATE.info.etops) || [];
+  box.innerHTML = list.map(e =>
+    '<div class="etops" title="' + esc(e.ap) + ' — ET ' + esc(e.et) + ' / LT ' + esc(e.lt) + '">' +
+    '<b>' + esc(e.ap) + '</b><i>ET</i><span>' + esc(e.et) + '</span>' +
+    '<i>LT</i><span>' + esc(e.lt) + '</span></div>').join('');
+}
+
+/* ETP / LDG の ETA をヘッダーに表示。タップでその WPT まで飛ぶ。 */
+function renderEta(list){
+  const box = $('#etaBox');
+  if(!box) return;
+  box.innerHTML = list.map(e =>
+    '<button class="eta ' + e.kind + (e.done ? ' done' : '') + '" data-jump="' + e.i +
+    '" title="' + esc(e.label) + ' の ETA — タップでその WPT へ">' +
+    '<b>' + esc(e.label) + '</b><span>' + minToClock(e.min).replace(':','') + 'Z</span></button>').join('');
+  box.querySelectorAll('button[data-jump]').forEach(b=>{
+    b.onclick = ()=>{
+      const s = $('#s' + b.dataset.jump);
+      if(!s) return;
+      s.scrollIntoView({block:'center'});
+      s.classList.add('resume');
+      setTimeout(()=>s.classList.remove('resume'), 2600);
+    };
   });
 }
 
@@ -1051,6 +1132,7 @@ const WP_KEYS   = ['seq','name','pos','tc','mc','gs','tas','dist','rem','ctme','
 function encodePlan(){
   const i = STATE.info || {};
   const parts = ['I:' + INFO_KEYS.map(k => i[k] || '').join(':')];
+  (i.etops || []).forEach(e => parts.push('X:' + [e.ap, e.et, e.lt].join(':')));
   STATE.wps.forEach(w => parts.push('W:' + WP_KEYS.map(k => w[k] == null ? '' : w[k]).join(':')));
   return parts.join(QR_SEP).toUpperCase();
 }
@@ -1060,6 +1142,9 @@ function decodePlan(body){
     if(part.startsWith('I:')){
       const f = part.slice(2).split(':');
       INFO_KEYS.forEach((k,n)=>{ if(f[n]) info[k] = f[n]; });
+    }else if(part.startsWith('X:')){
+      const f = part.slice(2).split(':');
+      (info.etops = info.etops || []).push({ap:f[0]||'', et:f[1]||'', lt:f[2]||''});
     }else if(part.startsWith('W:')){
       const f = part.slice(2).split(':');
       const w = {};
@@ -1390,7 +1475,15 @@ function preparePrint(){
     (i.ft?('   F/T '+i.ft):'') +
     '   ·   PRINTED ' + d.toISOString().slice(0,10) + ' ' +
     String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinutes()).padStart(2,'0') + 'Z' +
-    ($('#reflow').checked ? '   ·   ETO REVISED FROM LATEST ATO' : '');
+    ($('#reflow').checked ? '   ·   ETO REVISED FROM LATEST ATO' : '') +
+    (function(){
+      const e = [...document.querySelectorAll('#etaBox .eta')]
+        .map(b => b.querySelector('b').textContent + ' ' + b.querySelector('span').textContent);
+      const x = ((STATE.info && STATE.info.etops) || [])
+        .map(o => o.ap + ' ' + o.et + '/' + o.lt);
+      return (e.length ? '   ·   ' + e.join('   ') : '') +
+             (x.length ? '   ·   ETOPS ' + x.join('   ') : '');
+    })();
   STATE.wps.forEach((w,i)=>{
     ['ato','alt_in','rmg','sat','spot'].forEach(f=>{
       const el = document.getElementById('pv'+(f==='alt_in'?'alt':f)+i);
@@ -1433,8 +1526,16 @@ function tick(){
   const d = new Date();
   $('#utc').textContent = 'UTC ' + String(d.getUTCHours()).padStart(2,'0')+':'+
                           String(d.getUTCMinutes()).padStart(2,'0')+':'+String(d.getUTCSeconds()).padStart(2,'0');
-  document.documentElement.style.setProperty('--hdrH', $('#topbar').offsetHeight+'px');
+  syncHdr();
 }
+/* ヘッダーの高さを凡例の sticky 位置に反映する。ETP/LDG や ETOPS が増えて
+   ヘッダーが高くなった時、1 秒待たずに追従させる。 */
+function syncHdr(){
+  const b = $('#topbar');
+  if(b) document.documentElement.style.setProperty('--hdrH', b.offsetHeight+'px');
+}
+if(window.ResizeObserver && $('#topbar')) new ResizeObserver(syncHdr).observe($('#topbar'));
+window.addEventListener('resize', syncHdr);
 tick(); setInterval(tick, 1000);
 
 /* =======================================================================
