@@ -89,20 +89,19 @@ header{
 #etaBox:empty,#etopsBox:empty{display:none}
 /* ETOPS 代替空港の ET / LT（プランからそのまま）。
    時刻の性格が他と違うので、色も大きさも分けて一目で区別できるようにする。 */
-#etopsBox{gap:7px}
+#etopsBox{gap:6px}
+/* 参照用の値なので、T/O や ETA より一段小さく静かにする */
 .etops-tag{
-  font-size:10px;font-weight:700;letter-spacing:.18em;color:var(--etops);
-  border:1px solid var(--etops);border-radius:999px;padding:4px 9px;white-space:nowrap;
+  font-size:9.5px;font-weight:700;letter-spacing:.16em;color:var(--etops);opacity:.8;
+  border:1px solid var(--etops);border-radius:999px;padding:3px 8px;white-space:nowrap;
 }
 .etops{
-  display:flex;align-items:baseline;gap:9px;
-  background:rgba(255,134,179,.10);border:1.5px solid var(--etops);
-  border-radius:9px;padding:6px 13px;
+  display:flex;align-items:baseline;gap:7px;
+  background:var(--panel2);border:1px solid var(--rule);border-radius:8px;padding:4px 10px;
 }
-html[data-theme="day"] .etops{background:rgba(176,0,106,.07)}
-.etops b{font-size:15px;letter-spacing:.1em;color:var(--etops);font-weight:700}
-.etops span{font-size:20px;font-weight:700;letter-spacing:.06em;color:var(--text)}
-.etops i{font-style:normal;font-size:10px;letter-spacing:.1em;color:var(--etops);opacity:.85}
+.etops b{font-size:12px;letter-spacing:.1em;color:var(--etops);font-weight:700;opacity:.85}
+.etops span{font-size:16px;font-weight:700;letter-spacing:.04em;color:var(--text)}
+.etops i{font-style:normal;font-size:9px;letter-spacing:.1em;color:var(--plan);opacity:.65}
 .eta{
   display:flex;align-items:baseline;gap:9px;cursor:pointer;
   background:var(--panel2);border:1px solid var(--rule);border-radius:9px;padding:6px 13px;
