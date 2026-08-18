@@ -470,15 +470,30 @@ function minToClock(m){
   return String(Math.floor(v/60)).padStart(2,'0') + ':' + String(v%60).padStart(2,'0');
 }
 function dayOffset(m){ return Math.floor(m/1440); }
-/* fuel in navlog units (x1000 LB, one decimal).  "284.1" / "2841" / "284100" -> 284.1 */
+/* 燃料は「1000LB 単位・小数 1 桁」。数字だけの入力は 4 桁の XXX.X として読む。
+   258 -> 2580 -> 258.0 ／ 2580 -> 258.0 ／ 0258 -> 25.8 ／ 02580 -> 0258 -> 25.8
+   （284100 のような LB 表記も先頭 4 桁を採るので 284.1 になる）              */
+function fuelDigits(t){
+  const d = String(t||'').replace(/\D/g,'');
+  if(!d) return null;
+  return parseInt((d + '0000').slice(0,4), 10) / 10;
+}
 function fuelVal(s){
   const t = String(s||'').trim().replace(/[,\s]/g,'');
   if(!/^\d*\.?\d+$/.test(t)) return null;
   if(t.indexOf('.')>=0) return parseFloat(t);
-  const n = parseInt(t,10);
-  if(t.length<=3) return n;
-  if(t.length===4) return n/10;
-  return n/1000;
+  return fuelDigits(t);
+}
+/* RMG 欄の表示を XXX.X にそろえる */
+function fmtRmg(s){
+  const t = String(s==null?'':s).trim();
+  if(t === '') return '';
+  if(t.indexOf('.') >= 0){                 /* 自分で小数点を打った場合はその値 */
+    const v = parseFloat(t.replace(/[^\d.]/g,''));
+    return isNaN(v) ? t : v.toFixed(1);
+  }
+  const v = fuelDigits(t);
+  return v == null ? t : v.toFixed(1);
 }
 function fmtFuelDiff(d){ return (d>0?'+':(d<0?'-':'')) + Math.abs(d).toFixed(1); }
 
@@ -810,7 +825,7 @@ function stripHTML(w){
         <span class="pv" id="pvalt${i}"></span></div>
       <div class="slot"><span class="k">RMG</span>
         <input data-f="rmg" data-i="${i}" inputmode="decimal" maxlength="7" placeholder="---.-" autocomplete="off" value="${esc(w.rmg)}"
-               title="PLAN FUEL ${esc(w.fuel||'')} との差を自動表示 (284.1 / 2841 / 284100 いずれの書き方でも可)">
+               title="数字 4 桁で XXX.X（258→258.0 ／ 2580→258.0 ／ 0258→25.8 ／ 02580→25.8）。PLAN FUEL ${esc(w.fuel||'')} との差を自動表示">
         <span class="pv" id="pvrmg${i}"></span>
         <div class="delta" id="fdl${i}"></div></div>
       <div class="slot"><span class="k">SAT</span>
@@ -875,6 +890,11 @@ function onBlur(e){
       const m = clockToMin(raw);
       if(m != null){ STATE.wps[i].eto_manual = m; STATE.etoBaseIdx = i; }
     }
+    recompute();
+  }else if(f==='rmg'){
+    const v = fmtRmg(el.value);
+    if(v !== el.value) el.value = v;
+    STATE.wps[i].rmg = v;
     recompute();
   }else if(f==='sat'){
     const v = fmtSat(el.value);
