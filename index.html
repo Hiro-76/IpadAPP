@@ -308,33 +308,39 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
   #printHead{display:block;border-bottom:1.5px solid #000;padding-bottom:4px;margin-bottom:6px}
   #printHead .ph1{font-size:13pt;font-weight:700;letter-spacing:.08em}
   #printHead .ph2{font-size:8.5pt;margin-top:2px}
-  #sheet{padding:0;max-width:none}
+  #sheet{padding:0;max-width:none;width:100%}
+  /* 1 WPT が用紙の境目で切れないよう、ブロックとして扱う。
+     display:contents だと箱が消えて break-inside:avoid が効かない。 */
   .strip{
-    break-inside:avoid;page-break-inside:avoid;border:0;border-bottom:1.5px solid #333;
-    border-radius:0;box-shadow:none;margin:0 2px;padding:3px 0;
-    display:contents;
+    break-inside:avoid;page-break-inside:avoid;
+    display:block;width:100%;box-sizing:border-box;
+    border:0;border-bottom:1pt solid #333;border-radius:0;box-shadow:none;
+    margin:0;padding:1.5pt 0;background:#fff;
   }
-  .strip > .entry{display:grid;width:100%;margin:2px 0}
-  .strip.milestone{background:#fff}
-  .wp{display:flex;flex-direction:row;align-items:baseline;gap:4px;margin-bottom:1px;padding:0 2px}
-  .wp .name{font-size:4.5pt;font-weight:700;line-height:1;letter-spacing:0}
-  .wp .name .seq{font-size:3.5pt;opacity:0.6;margin-right:2px}
-  .wp .pos{display:none}
-  .plan{gap:1px 10px}.cell .k{font-size:5.5pt}.cell .v{font-size:7.5pt}
-  .entry{gap:4px;padding:5px;margin:0;grid-template-columns:4fr 4fr 3fr 5fr 3fr 7fr auto;width:100%;border:1px solid #666;border-radius:6px;background:#111}
-  .slot .k{font-size:6.5pt;opacity:1;color:#666 !important;font-weight:700}
+  .strip.milestone,.strip.flagged,.strip.etp,.strip.resume{background:#fff;outline:0;animation:none}
+  .wp{display:flex;flex-direction:row;align-items:baseline;gap:5px;margin:0 0 1pt;padding:0 2pt}
+  .wp .name{font-size:7pt;font-weight:700;line-height:1.1;letter-spacing:.02em;overflow:visible}
+  .wp .name .seq{font-size:5.5pt;opacity:.6;margin-right:3px}
+  .wp .pos{display:block;font-size:5.5pt;opacity:.75}
+  .plan{gap:0 9px;padding:0 2pt}
+  .cell .k{font-size:5pt}.cell .v{font-size:7pt}
+  .entry{gap:3px;padding:3pt;margin:1pt 0 0;
+    grid-template-columns:4fr 4fr 3fr 5fr 3fr 7fr;width:100%;box-sizing:border-box;
+    border:1px solid #666;border-radius:4px;background:#111}
+  .slot .k{font-size:6pt;opacity:1;color:#888 !important;font-weight:700}
   .slot input{display:none}
-  .slot .eto{border:0;padding:0;font-size:10pt;text-align:center}
-  .pv{display:block !important;text-align:center;font-size:13pt !important;font-weight:900 !important;
-      border-bottom:1px solid #222;min-height:1.5em;padding:6px 3px;
-      color:#ffffff !important;background:#000000 !important;line-height:1.5;
-      letter-spacing:0.05em}
+  .pv{display:block !important;text-align:center;font-size:11pt !important;font-weight:900 !important;
+      border-bottom:1px solid #222;min-height:1.25em;padding:3pt 2pt;
+      color:#ffffff !important;background:#000000 !important;line-height:1.25;
+      letter-spacing:0.04em}
   /* ETO は記入欄ではなく「計算済みの予定時刻」なので白地・黒文字で印字する。
      ATO 記入済みの行は背景が薄い水色になるため、白抜き文字だと読めなくなる。 */
   .pv.pv-eto{color:#000 !important;background:#fff !important;border-bottom:0;
-      font-size:11pt !important;font-weight:700 !important;min-height:0;padding:5px 3px}
-  .delta{font-size:7pt;min-height:0}
-  .rule{font-size:4.5pt;opacity:0.8;padding:1px 6px;margin:0;display:none}
+      font-size:10pt !important;font-weight:700 !important;min-height:0;padding:3pt 2pt}
+  .delta{font-size:6.5pt;min-height:0;line-height:1.1}
+  .rule{display:none}
+  /* 用紙からはみ出させない */
+  html,body,#sheet,.strip,.entry{max-width:100%}
 }
 </style>
 <!-- pdf.js はローカル同梱（ネット接続不要 / Service Worker がキャッシュ） -->
