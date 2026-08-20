@@ -1831,13 +1831,14 @@ function cduPrep(video, opt){
   /* しきい値は周りの明るさから決める（ベゼルの映り込みや画面のムラに強い）。
      一枚の平均だけで切ると、明るい枠が写り込んだ時に文字が背景側に沈む。 */
   const fine = !!(opt && opt.fine);              /* 薄い文字を拾う設定でもう一度読む用 */
+  const thin = !!(opt && opt.thin);             /* 太った文字を細らせる設定（隣とくっついた時） */
   /* 窓の大きさは文字の大きさから決める。1 行だけを細長く切り出した時に
      画像の短辺から決めると窓が小さくなりすぎ、太い文字の内側が抜ける。 */
   const th  = box.textH ? box.textH * scale : 0;
   const rad = th ? Math.max(8, Math.min(48, Math.round(th * 1.3)))
                  : Math.max(8, Math.round(Math.min(W,H)/(fine ? 12 : 22)));
   const bg  = boxMean(gray, W, H, rad);
-  const C   = fine ? 5 : 10;
+  const C   = fine ? 5 : (thin ? 24 : 10);
   const on  = new Uint8Array(W*H);
   for(let i=0;i<gray.length;i++){
     on[i] = (up ? (gray[i] > bg[i] + C) : (gray[i] < bg[i] - C)) ? 1 : 0;
@@ -1979,6 +1980,18 @@ const CDU_LINES = [
   {keys:['temp','wind'],     lab:/^T[EF8][MH]P$/, same:/\d?KT$|^[-+M]?\d{1,3}.?C$/, wide:true},
   /* FUEL は右下にぽつんと 1 つ。数字だけに絞って読む */
   {keys:['fuel'], lab:/^[FP]?[UO]E[L1I]$/, last:true, corner:true, left:4.0, right:7.0, hgt:2.7, chars:'0123456789. '},
+];
+
+/* 行ごと読んでも駄目だった項目は、最後に**その項目だけ**を狭く切り出して読む。
+   隣の値（TEMP の右の WIND など）が入らないぶん大きく引き伸ばせるので、
+   `-42°c` が `-1°c`、`22KT` が `4KT` のように潰れた時の逃げ道になる。 */
+const CDU_SPOTS = [
+  {narrow:true, keys:['temp'], lab:/^T[EF8][MH]P$/,     left:1.8, right:2.6, chars:'0123456789-+MC°c '},
+  {narrow:true, keys:['wind'], lab:/^[WHMN]I?N[D0O]$/,  left:3.2, right:6.0, chars:'0123456789/°KT '},
+  {narrow:true, keys:['ata'],  lab:/^ATA$/,             left:3.2, right:2.6, chars:'0123456789Zz '},
+  {narrow:true, keys:['alt'],  lab:/^ALT$/,             left:2.0, right:4.6, chars:'FL0123456789 '},
+  {narrow:true, keys:['pos'],  lab:/^P[O0Q]S$/, not:/REPO|FUEL|EPORT/, left:2.0, right:5.5,
+                  chars:'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '},
 ];
 
 /* 写真の傾き（度）。同じ行で隣り合う語の中心を結んだ角度の中央値を採る。
@@ -2177,8 +2190,27 @@ const CDU_KEYS = ['pos','ata','alt','temp','wind','fuel'];
 
 /* 読んだ値がプラン（入れ先の WPT）と大きく食い違っていないか。
    食い違う物は確認画面で断り、読み直しの対象にもする。 */
+/* 桁が落ちた／増えた読みを見分ける。
+   ・巡航高度（FL200 以上）で SAT が -15°C より高いことはない
+     （`-42°C` の 4 が落ちて `-2°C` になる読み違いが多い）
+   ・風速がプランの半分以下・2 倍以上（`22KT` → `4KT` / `227KT`）
+   プランと少し違うだけの物とは分けて扱う（こちらは値として入れない）。 */
+function cduWild(r, w){
+  const wild = {};
+  if(!r) return wild;
+  const fl = /^\d{3}$/.test(r.alt||'') ? +r.alt
+           : (/^\d{4,5}$/.test((w && w.alt)||'') ? +w.alt/100 : null);
+  if(fl != null && fl >= 200 && r.temp && +fmtSat(r.temp) > -15)
+    wild.temp = 'FL' + String(Math.round(fl)).padStart(3,'0') + ' で ' + fmtSat(r.temp) + '°C は考えにくい';
+  const pw = w ? /(\d{2,3})\D+(\d{1,3})/.exec(w.wind||'') : null;
+  const rw = r.wind ? /(\d{2,3})\/(\d{1,3})/.exec(r.wind) : null;
+  if(pw && rw && +pw[2] >= 10 && (+rw[2] < +pw[2]*0.45 || +rw[2] > +pw[2]*2.2))
+    wild.wind = 'プランは ' + fmtWind(pw[1] + '/' + pw[2]);
+  return wild;
+}
+
 function cduOdd(r, w){
-  const odd = {};
+  const odd = Object.assign({}, cduWild(r, w));
   if(!r || !w) return odd;
   const pAlt = /^\d{4,5}$/.test(w.alt||'') ? +w.alt/100 : null;
   if(pAlt != null && r.alt && Math.abs(+r.alt - pAlt) > 40)
@@ -2193,7 +2225,7 @@ function cduOdd(r, w){
   const rw = r.wind ? /(\d{2,3})\/(\d{1,3})/.exec(r.wind) : null;
   if(pw && rw){
     const dd = Math.abs(((+rw[1] - +pw[1]) % 360 + 540) % 360 - 180);
-    if(Math.abs(+rw[2] - +pw[2]) > Math.max(50, +pw[2]) || dd > 90)
+    if(Math.abs(+rw[2] - +pw[2]) > 50 || dd > 90)
       odd.wind = 'プランは ' + fmtWind(pw[1] + '/' + pw[2]);
   }
   return odd;
@@ -2302,48 +2334,58 @@ async function cduRead(source){
     if(r.base && shots[r.base]){ shot.replaceWith(shots[r.base]); shot = shots[r.base]; shot.id = 'cduShot'; }
 
     /* 読めなかった項目は、見出しの位置から**その 1 行**を切り出して読み直す。
-       プランと大きく食い違う値も、読み違えの疑いがあるので読み直す。 */
+       プランと大きく食い違う値も、読み違えの疑いがあるので読み直す。
+       それでも駄目なら、最後にその項目だけを狭く切り出してもう一度。 */
     const doubt = cduDoubt(r);
-    const need  = CDU_KEYS.filter(k => !r[k] || doubt[k]);
-    if(need.length && alive()){
-      r.byBox = r.byBox || {};
-      for(const ln of CDU_LINES){
-        const keys = ln.keys.filter(k => need.indexOf(k) >= 0);
-        if(!keys.length || !alive()) continue;
-        const cands = passes.map(p => ({p, fb: cduSpotBox(p.res.words, p.cv, ln)}))
-                            .filter(c => c.fb)
-                            .sort((a,c) => (c.fb.byLabel?1:0) - (a.fb.byLabel?1:0));
-        const left = () => keys.filter(k => !r[k] || (doubt[k] && !r.byBox[k]));
-        for(const c of cands.slice(0, 2)){
-          if(!alive() || !left().length) break;
-          const fb = c.fb;
-          /* 切り出した帯は、文字が 48px 前後になるまで引き伸ばす。
-             元より小さくはしない（縮めると数字が潰れて読めなくなる） */
-          const side = Math.max(fb.w, fb.h);
-          const long = Math.min(2400, Math.max(side,
-            fb.textH > 0 ? Math.round(side * (48/fb.textH)) : side*2));
-          const deg  = cduSkew(c.p.res.words);
-          /* 白黒の付け方を変えて 2 通り試す。読めた時点で切り上げる */
-          for(const pp of [{}, {fine:true}]){
-            if(!alive() || !left().length) break;
-            const fcv  = cduPrep(source, Object.assign({box: fb, long, clean: true, deg}, pp));
-            const fres = await cduOcr(fcv, pct => {
-              if(alive()) cduStep(keys.join('/').toUpperCase() + ' を読み取り中  ' + pct + '%');
-            }, alive, ln.chars);
-            text += '\n---- ' + keys.join('/') + ' ' + JSON.stringify(fb) + JSON.stringify(pp) + '\n' + String(fres);
-            for(const key of left()){
-              const v = CDU_TAKE[key](String(fres), fb.byLabel);
-              if(!v) continue;
-              if(!r[key]){ r[key] = v; r.byBox[key] = true; continue; }
-              if(v === r[key]) continue;                 /* 同じ値が出た＝読み違えではない */
-              /* プランと食い違っていた値は、切り出して読んだ方を採る */
-              r.was = r.was || {}; r.was[key] = r[key];
-              r[key] = v; r.byBox[key] = true;
-            }
+    const okd   = {};                     /* 切り出して読んでも同じだった＝確かめ済み */
+    r.byBox = r.byBox || {};
+    const want = k => (!r[k] || (doubt[k] && !r.byBox[k])) && !okd[k];
+    let crops = 0;                        /* 切り出して読む回数の上限（遅くしすぎない） */
+    const readSpot = async (spec) => {
+      const keys = spec.keys.filter(want);
+      if(!keys.length || !alive()) return;
+      const cands = passes.map(p => ({p, fb: cduSpotBox(p.res.words, p.cv, spec)}))
+                          .filter(c => c.fb)
+                          .sort((a,c) => (c.fb.byLabel?1:0) - (a.fb.byLabel?1:0));
+      for(const c of cands.slice(0, 2)){
+        if(!alive() || !spec.keys.some(want)) break;
+        const fb = c.fb;
+        /* 切り出した所は、文字が 48px 前後になるまで引き伸ばす。
+           元より小さくはしない（縮めると数字が潰れて読めなくなる） */
+        const side = Math.max(fb.w, fb.h);
+        const long = Math.min(2400, Math.max(side,
+          fb.textH > 0 ? Math.round(side * (48/fb.textH)) : side*2));
+        const deg  = cduSkew(c.p.res.words);
+        /* 白黒の付け方を変えて試す。読めた時点で切り上げる。
+           thin は「太って隣とくっついた文字」を細らせる（`22` が `4` に見える時） */
+        for(const pp of (spec.narrow ? [{}, {fine:true}, {thin:true}] : [{}, {fine:true}])){
+          if(!alive() || !spec.keys.some(want) || crops >= 10) break;
+          crops++;
+          const fcv  = cduPrep(source, Object.assign({box: fb, long, clean: true, deg}, pp));
+          const fres = await cduOcr(fcv, pct => {
+            if(alive()) cduStep(keys.join('/').toUpperCase() + ' を読み取り中  ' + pct + '%');
+          }, alive, spec.chars);
+          text += '\n---- ' + keys.join('/') + ' ' + JSON.stringify(fb) + JSON.stringify(pp) + '\n' + String(fres);
+          for(const key of spec.keys.filter(want)){
+            const v = CDU_TAKE[key](String(fres), fb.byLabel);
+            if(!v) continue;
+            if(!r[key]){ r[key] = v; r.byBox[key] = true; continue; }
+            if(v === r[key]){ okd[key] = true; continue; }   /* 同じ値＝読み違えではない */
+            /* プランと食い違っていた値は、切り出して読んだ方を採る */
+            r.was = r.was || {}; r.was[key] = r[key];
+            r[key] = v; r.byBox[key] = true;
           }
         }
       }
+    };
+    if(CDU_KEYS.some(want) && alive()){
+      for(const ln of CDU_LINES)  await readSpot(ln);     /* まず行ごと */
+      for(const sp of CDU_SPOTS)  await readSpot(sp);     /* まだ駄目なら 1 項目ずつ */
     }
+    /* 読み直しても巡航高度でありえない SAT のままなら、値として入れない。
+       黙って間違った温度を入れるより、空にして手で入れてもらう方がよい。 */
+    const wild = cduWild(r, (cduWptIdx() >= 0 ? STATE.wps[cduWptIdx()] : null));
+    if(wild.temp){ r.seen.temp = fmtSat(r.temp) + '°C'; r.temp = null; delete r.byBox.temp; }
   }catch(err){
     if(!alive()) return;                 /* やめた／撮り直した分は黙って捨てる */
     console.error(err);
