@@ -183,6 +183,7 @@ html[data-theme="day"] .btn.now-to{color:#fff}
 .cdu-grid .k{font-size:11px;letter-spacing:.12em;color:var(--plan)}
 .cdu-grid .v{font-size:20px;font-weight:700;color:var(--ink);letter-spacing:.04em}
 .cdu-grid .v.miss{color:var(--late);font-size:14px;font-weight:400}
+.cdu-grid .v .fix{display:block;font-size:11px;font-weight:400;letter-spacing:0;color:var(--late)}
 .cdu-grid .to{font-size:12px;color:var(--plan)}
 .cdu-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
 
@@ -1398,10 +1399,39 @@ const OCR_BASE = 'vendor/ocr/';
    解決されて迷子になるので、必ず絶対 URL にして渡す。 */
 const ocrUrl = (name) => new URL(OCR_BASE + (name||''), location.href).href;
 
+/* CDU の 0 は斜線入り（Ø）なので、文字認識が 9 や 8 と読むことがある。
+   ありえない値になった時だけ、0 に戻して筋が通るかを試す。
+   直した所は raw に元の読みを残し、確認画面で見せる。                     */
+function zeroFix(s, okFn){
+  if(!s) return null;
+  if(okFn(s)) return s;
+  const at = [];
+  for(let i=0;i<s.length;i++) if(s[i] === '8' || s[i] === '9') at.push(i);
+  const byCost = new Map();                              /* 直した文字数 → 候補 */
+  for(let mask=1; mask < (1<<at.length); mask++){        /* 8/9 を 0 に戻す組み合わせ */
+    const a = s.split('');
+    let n = 0;
+    for(let k=0;k<at.length;k++) if(mask & (1<<k)){ a[at[k]] = '0'; n++; }
+    const v = a.join('');
+    if(!okFn(v)) continue;
+    if(!byCost.has(n)) byCost.set(n, new Set());
+    byCost.get(n).add(v);
+  }
+  /* 直す文字数が一番少ない案を採る。同じ手数で何通りもあるなら決めない */
+  for(const n of [...byCost.keys()].sort((a,b)=>a-b)){
+    const set = byCost.get(n);
+    if(set.size === 1) return [...set][0];
+    return null;
+  }
+  return null;
+}
+const okClock = s => /^\d{4}$/.test(s) && +s.slice(0,2) < 24 && +s.slice(2) < 60;
+const okDir   = s => /^\d{1,3}$/.test(s) && +s <= 360;
+
 /* --- 読み取った文字列から 5 項目を拾う（OCR に依存しないので単体で試せる） --- */
 function parseCdu(text){
   const t = String(text||'').toUpperCase().replace(/[｜|]/g,'/');
-  const out = {pos:null, ata:null, alt:null, temp:null, wind:null};
+  const out = {pos:null, ata:null, alt:null, temp:null, wind:null, fixed:{}, seen:{}};
 
   /* ATA / ETA は 4 桁 + Z。先に出てくる方が ATA。
      小文字の z は OCR が 2 と読むことがあるので [Z2] まで許す。 */
@@ -1411,19 +1441,42 @@ function parseCdu(text){
     const only = /\bATA\b\D{0,8}(\d{4})/.exec(t);
     if(only) times = [only[1]];
   }
-  if(times.length) out.ata = times[0];
+  if(times.length){
+    const fix = zeroFix(times[0], okClock);
+    if(fix && fix !== times[0]) out.fixed.ata = times[0];
+    if(!fix) out.seen.ata = times[0];                /* 時刻にならないので入れない */
+    out.ata = fix;
+  }
 
-  /* ALT: FL190 / FL 190 */
-  let m = /FL\s*(\d{2,3})/.exec(t);
-  if(m) out.alt = m[1];
+  /* ALT: FL190 / FL 190。3 桁を優先し、10 の倍数でなければ末尾の 8/9 を 0 と見る */
+  let m = /FL\s*(\d{3})/.exec(t) || /FL\s*(\d{2})/.exec(t);
+  if(m){
+    let a = m[1];
+    if(a.length === 3 && +a % 10 !== 0 && /[89]$/.test(a)){
+      out.fixed.alt = a; a = a.slice(0,2) + '0';    /* FL348 → FL340 */
+    }
+    out.alt = (+a >= 10 && +a <= 500) ? a : null;
+    if(!out.alt) out.seen.alt = m[1];
+  }
 
-  /* TEMP: -25°C / -25 C / M25 C */
-  m = /([-+M]?\s*\d{1,3})\s*°?\s*C\b/.exec(t);
-  if(m) out.temp = m[1].replace(/\s+/g,'').replace(/^M/,'-');
+  /* TEMP: -25°C / -25 C / M25 C。°C が読めない時は WIND の行の頭の数字を採る
+     （CDU は「-43°c  324°/ 28KT」と 1 行に並ぶ） */
+  m = /([-+M]?\s*\d{1,3})\s*°?\s*C+\b/.exec(t)          /* °Cc と重なって出ることがある */
+   || /^\s*([-+M]?\d{1,3})\s*°?C*\s+\d{2,3}\s*°?\s*\/\s*\d{1,3}\s*KT/m.exec(t);
+  if(m){
+    const v = m[1].replace(/\s+/g,'').replace(/^M/,'-');
+    const n = Math.abs(+v.replace(/^[-+]/,''));
+    out.temp = (n <= 99) ? v : null;
+  }
 
-  /* WIND: 180°/30KT */
-  m = /(\d{2,3})\s*°?\s*\/\s*(\d{1,3})\s*KT/.exec(t);
-  if(m) out.wind = m[1].padStart(3,'0') + '/' + m[2];
+  /* WIND: 180°/30KT。埃を点として拾うので、区切りの前後に混じる . は無視する */
+  m = /(\d{2,3})\s*°?[.\s]*\/[.\s]*(\d{1,3})[.\s]*KT/.exec(t);
+  if(m){
+    const dir = zeroFix(m[1], okDir);               /* 924 → 024 */
+    if(dir && dir !== m[1]) out.fixed.wind = m[1] + '/' + m[2];
+    if(dir && +m[2] <= 250) out.wind = dir.padStart(3,'0') + '/' + m[2];
+    if(!out.wind) out.seen.wind = m[1] + '/' + m[2];
+  }
 
   /* POS: まず "POS" と書かれた行の右端の語。見出し（POS REPORT）と
      POS FUEL の行は除く。見つからなければ ATA の行とその直前から拾う。 */
@@ -1438,10 +1491,11 @@ function parseCdu(text){
     const hit = pick(head[1]);
     if(hit.length){ out.pos = hit[hit.length-1]; break; }
   }
-  if(!out.pos && out.ata){
-    let at = lines.findIndex(l => new RegExp(out.ata + '\\s*[Z2]?').test(l));
+  if(!out.pos && times.length){
+    const raw = times[0];                            /* 行を探すのは読んだままの文字で */
+    let at = lines.findIndex(l => new RegExp(raw + '\\s*[Z2]?').test(l));
     for(let k = at; k >= 0 && k > at - 3; k--){
-      const hit = pick((lines[k]||'').replace(new RegExp(out.ata + '\\s*[Z2]?','g'),' '));
+      const hit = pick((lines[k]||'').replace(new RegExp(raw + '\\s*[Z2]?','g'),' '));
       if(hit.length){ out.pos = hit[0]; break; }
     }
   }
@@ -1614,9 +1668,25 @@ function cduPrep(video){
   let bright = 0;
   for(let k=0;k<d.length;k+=4) if(d[k] > mean) bright++;
   const invert = bright <= (d.length/4)/2;
-  for(let k=0;k<d.length;k+=4){
+  const W = cv.width, H = cv.height;
+  const on = new Uint8Array(W*H);
+  for(let i=0,k=0;i<on.length;i++,k+=4){
     const hi = d[k] > mean;
-    const v = (invert ? hi : !hi) ? 0 : 255;   /* 少数派＝文字 → 黒に */
+    on[i] = (invert ? hi : !hi) ? 1 : 0;       /* 少数派＝文字 */
+  }
+  /* 画面の埃を落とす（周りに仲間がいない点は文字ではない） */
+  const keep = new Uint8Array(on);
+  for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
+    const i = y*W+x;
+    if(!on[i]) continue;
+    let n = 0;
+    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+      if(dx||dy) n += on[i + dy*W + dx];
+    }
+    if(n < 2) keep[i] = 0;
+  }
+  for(let i=0,k=0;i<keep.length;i++,k+=4){
+    const v = keep[i] ? 0 : 255;
     d[k] = d[k+1] = d[k+2] = v;
   }
   g.putImageData(img, 0, 0);
@@ -1725,7 +1795,9 @@ async function cduOcr(canvas){
   });
   try{
     await worker.setParameters({
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/.:-+°<> ',
+      /* CDU は大文字だが、時刻の z と °c だけ小文字。この 2 文字を許すと
+         「0416z」が「94162」に化けるのを防げる。 */
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/.:-+°<>zc ',
       preserve_interword_spaces: '1'
     });
     const {data} = await worker.recognize(canvas);
@@ -1821,10 +1893,17 @@ function ocrWorkerBlob(map){
 function cduReview(r, raw){
   const idx = matchWpt(r.pos);
   const w   = idx >= 0 ? STATE.wps[idx] : null;
-  const row = (k, v, to) =>
-    '<div class="k">' + k + '</div>' +
-    '<div class="v' + (v ? '' : ' miss') + '">' + esc(v || '読み取れず') + '</div>' +
-    '<div class="to">' + esc(to || '') + '</div>';
+  const fixed = r.fixed || {}, seen = r.seen || {};
+  const row = (k, v, to) => {
+    const key = k.toLowerCase();
+    const note = fixed[key] ? '読み ' + fixed[key] + ' を補正'
+               : seen[key]  ? '読み ' + seen[key] + ' は値としておかしい' : '';
+    return '<div class="k">' + k + '</div>' +
+      '<div class="v' + (v ? '' : ' miss') + '">' + esc(v || '読み取れず') +
+        (note ? '<span class="fix">' + esc(note) + '</span>' : '') +
+      '</div>' +
+      '<div class="to">' + esc(to || '') + '</div>';
+  };
   $('#cduBody').innerHTML =
     '<div class="hoff-step" id="cduStep">' +
       (w ? ('WPT ' + String(w.seq).padStart(2,'0') + ' ' + esc(w.name) + ' に入れます')
