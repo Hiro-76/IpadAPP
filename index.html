@@ -1624,6 +1624,8 @@ function cduStop(){
 }
 function cduClose(){
   cduStop();
+  cduRun++;                 /* 走っている読み取りは見捨てる */
+  ocrDrop();                /* 文字認識も片付ける（裏で走り続けさせない） */
   $('#cdu').hidden = true;
   $('#cduBody').innerHTML = '';
   cduSay(''); ocrSay('');
@@ -1658,6 +1660,7 @@ async function cduOpen(){
 }
 async function cduCamera(){
   cduStop();
+  cduRun++;                 /* 撮り直す時、前の読み取りは見捨てる */
   /* ボタンは映像より上に置く。映像が縦長でも必ず押せる位置に残す。 */
   $('#cduBody').innerHTML =
     '<div class="hoff-step" id="cduStep">カメラを起動しています…</div>' +
@@ -1870,12 +1873,40 @@ function boxMean(src, W, H, r){
 }
 
 async function cduShoot(video){
+  if(!video.videoWidth || !video.videoHeight){
+    cduStep('カメラの映像がまだ出ていません');
+    cduSay('少し待ってからもう一度押すか、<b>写真から読み込む</b>を使ってください。');
+    return;
+  }
   const src = document.createElement('canvas');
   src.width = video.videoWidth; src.height = video.videoHeight;
-  src.getContext('2d').drawImage(video, 0, 0);
+  const g = src.getContext('2d', {willReadFrequently:true});
+  g.drawImage(video, 0, 0);
   src.videoWidth = src.width; src.videoHeight = src.height;
+  /* 真っ暗な絵を何十秒もかけて読むのは無駄。撮れているかだけ先に見る */
+  if(cduBlank(g, src.width, src.height)){
+    cduStep('映像が真っ暗です');
+    cduSay('カメラが映っているか確かめてください（他のアプリがカメラを使っていると真っ暗になります）。<br>' +
+           '<b>写真から読み込む</b>でも読めます。');
+    return;
+  }
   cduStop();
   await cduRead(src);
+}
+
+/* 撮れた絵に明暗の差がほとんど無い＝何も写っていない */
+function cduBlank(g, w, h){
+  const n = 64;
+  const sx = Math.max(1, Math.floor(w/n)), sy = Math.max(1, Math.floor(h/n));
+  const d = g.getImageData(0, 0, w, h).data;
+  let lo = 255, hi = 0;
+  for(let y=0;y<h;y+=sy) for(let x=0;x<w;x+=sx){
+    const k = (y*w + x)*4;
+    const v = d[k]*0.299 + d[k+1]*0.587 + d[k+2]*0.114;
+    if(v < lo) lo = v;
+    if(v > hi) hi = v;
+  }
+  return (hi - lo) < 12;
 }
 
 const CDU_KEYS = ['pos','ata','alt','temp','wind','fuel'];
@@ -1917,50 +1948,66 @@ function cduMerge(list){
 
 /* 撮った絵を読み、確認画面へ。
    1 回目でうまく読めない時は、切り出しと白黒の付け方を変えてもう一度だけ読む。 */
+/* 撮り直し・画面を閉じた時に、走っている読み取りを見捨てるための番号 */
+let cduRun = 0;
+const CDU_MUST = ['ata','alt','temp','wind'];      /* これが揃えば読み直さない */
+
 async function cduRead(source){
-  $('#cduBody').innerHTML = '<div class="hoff-step" id="cduStep">読み取っています…</div>';
-  cduSay('文字を読んでいます。数秒かかります。');
+  const mine = ++cduRun;
+  const alive = () => mine === cduRun;
+  $('#cduBody').innerHTML =
+    '<div class="hoff-step" id="cduStep">読み取っています…</div>' +
+    '<div class="cdu-row"><button class="btn" id="cduAbort">やめる</button></div>';
+  const stop = $('#cduAbort');
+  if(stop) stop.onclick = ()=>{ cduRun++; ocrDrop(); cduCamera(); };
+  cduSay('文字を読んでいます。10 秒ほどかかります。');
   let shot, r, text = '';
   try{
     /* 1 回目は写真全体を読む（勝手に切って文字を捨てない）。
        そこで見つかった語の位置から画面の範囲と文字の大きさが分かるので、
        2 回目はそこだけを大きく引き伸ばして読み直す。 */
     const shots = [], reads = [];
-    const runOnce = async (opt, mark) => {
+    let step = 0;
+    const runOnce = async (opt, total) => {
+      if(!alive()) throw new Error('やめました');
+      step++;
       const cv  = cduPrep(source, opt);
-      const res = await cduOcr(cv);              /* 文字列 + 語の位置（res.words） */
+      const res = await cduOcr(cv, pct => {
+        if(alive()) cduStep('読み取り中 ' + step + '/' + total + '  ' + pct + '%');
+      }, alive);
+      if(!alive()) throw new Error('やめました');
       const rr  = parseCdu(String(res));
-      if(mark) rr.__flip = true;
+      if(opt.flip) rr.__flip = true;
       shots.push(cv); reads.push(rr);
       text += (text ? '\n---- ' + JSON.stringify(opt) + '\n' : '') + String(res);
       return {cv, res, rr};
     };
-    const first = await runOnce({whole:true});
+    const enough = rr => CDU_MUST.every(k => rr && rr[k]);
+
+    const first = await runOnce({whole:true}, 2);
     shot = shots[0];
     $('#cduBody').appendChild(shot); shot.id = 'cduShot';
 
-    if(cduCount(reads[0]) < CDU_KEYS.length){
-      const box  = cduWordBox(first.res.words, first.cv);
-      const plan = [];
-      if(box){
-        /* 文字の高さが 40px 前後になるように引き伸ばす */
-        const want = box.textH > 0 ? Math.min(2600, Math.round(Math.max(box.w, box.h) * (40/box.textH))) : 2200;
-        plan.push({box, long: Math.max(1600, want)});
-        plan.push({box, long: Math.max(1600, want), fine:true});
-      }else{
-        plan.push({});                       /* 語が拾えない時は従来の切り出し */
-        plan.push({fine:true});
-      }
-      for(let k=0;k<plan.length;k++){
-        cduStep('もう一度読み直しています… ' + (k+2) + '/' + (plan.length+1));
-        const {rr} = await runOnce(plan[k], plan[k].flip);
-        if(cduCount(rr) >= CDU_KEYS.length) break;
-        if(k === plan.length-1 && !reads.some(cduCount)) plan.push({whole:true, flip:true});
+    if(!enough(reads[0])){
+      const box = cduWordBox(first.res.words, first.cv);
+      /* 文字の高さが 36px 前後になるように引き伸ばす（大きすぎると遅い） */
+      const opt = box
+        ? {box, long: Math.max(1500, Math.min(2200,
+            box.textH > 0 ? Math.round(Math.max(box.w, box.h) * (36/box.textH)) : 2000))}
+        : {fine:true};
+      const second = await runOnce(opt, 2);
+      if(!enough(cduMerge(reads))){
+        /* まだ足りない: 同じ範囲を薄い文字も拾う設定で 3 回目 */
+        const third = await runOnce(Object.assign({}, opt, {fine:true}), 3);
+        /* それでも何一つ読めていない時だけ、白黒を反転して最後に 1 回 */
+        if(!cduCount(third.rr) && !reads.some(cduCount))
+          await runOnce({whole:true, flip:true}, 4);
       }
     }
     r = cduMerge(reads);
     if(r.base && shots[r.base]){ shot.replaceWith(shots[r.base]); shot = shots[r.base]; shot.id = 'cduShot'; }
   }catch(err){
+    if(!alive()) return;                 /* やめた／撮り直した分は黙って捨てる */
     console.error(err);
     cduStep('読み取れませんでした');
     cduSay('文字認識を動かせませんでした（' + (err && err.message || 'エラー') + '）。<br>' +
@@ -1968,6 +2015,7 @@ async function cduRead(source){
     const r2 = $('#cduRetry'); if(r2) r2.onclick = cduCamera;
     return;
   }
+  if(!alive()) return;
   window.__lastCdu = r;                 /* 動作確認用に最後の読み取り結果を残す */
   window.__lastBox = shot && shot.srcBox || null;
   cduReview(r, text, shot);
@@ -1976,27 +2024,42 @@ async function cduRead(source){
 /* Tesseract を読み込んで 1 枚だけ読む。
    機内（電波なし）で確実に動かすため、部品は必ず端末の navlog-ocr から取り出し、
    blob: にしてから worker に渡す。ネットにも Service Worker にも頼らない。 */
-async function cduOcr(canvas){
-  const map = await ocrReady(msg => { const st = $('#cduStep'); if(st) st.textContent = msg; });
+/* worker は 1 つを使い回す（毎回作ると数秒かかる）。画面を閉じたら片付ける。 */
+let ocrJob = null, ocrNote = null;
+async function ocrGetWorker(){
+  if(ocrJob) return ocrJob;
+  const map = await ocrReady(msg => cduStep(msg));
   if(!window.Tesseract) await loadScript(map['tesseract.min.js']);
-  const worker = await Tesseract.createWorker('eng', 1, {
+  const w = await Tesseract.createWorker('eng', 1, {
     workerPath:    ocrWorkerBlob(map),
     workerBlobURL: false,          /* 既に blob なので二重に包ませない */
     corePath:      map[ocrCoreName()] + '#core.js',  /* .js で終わると そのまま使われる */
     langPath:      'ocr',          /* fetch を差し替えているので中身は何でもよい */
     gzip: true,
     logger: m => {
-      const st = $('#cduStep');
-      if(st && m && m.status) st.textContent = m.status + ' ' + Math.round((m.progress||0)*100) + '%';
+      if(!m || !m.status || !ocrNote) return;
+      if(m.status.indexOf('recognizing') < 0) return;
+      ocrNote(Math.round((m.progress||0)*100));
     }
   });
+  await w.setParameters({
+    /* CDU は大文字だが、時刻の z と °c だけ小文字。この 2 文字を許すと
+       「0416z」が「94162」に化けるのを防げる。 */
+    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/.:-+°<>zc ',
+    preserve_interword_spaces: '1'
+  });
+  ocrJob = w;
+  return w;
+}
+function ocrDrop(){
+  const w = ocrJob; ocrJob = null; ocrNote = null;
+  if(w) w.terminate().catch(()=>{});
+}
+async function cduOcr(canvas, onPct, alive){
+  const worker = await ocrGetWorker();
+  if(alive && !alive()){ ocrDrop(); throw new Error('やめました'); }
+  ocrNote = onPct || null;
   try{
-    await worker.setParameters({
-      /* CDU は大文字だが、時刻の z と °c だけ小文字。この 2 文字を許すと
-         「0416z」が「94162」に化けるのを防げる。 */
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/.:-+°<>zc ',
-      preserve_interword_spaces: '1'
-    });
     const {data} = await worker.recognize(canvas, {}, {text:true, blocks:true});
     const words = [];
     (data.blocks||[]).forEach(bl => (bl.paragraphs||[]).forEach(pa =>
@@ -2008,7 +2071,7 @@ async function cduOcr(canvas){
     out.words = words;
     return out;
   }finally{
-    worker.terminate().catch(()=>{});
+    ocrNote = null;
   }
 }
 
