@@ -174,6 +174,7 @@ html[data-theme="day"] .btn.now-to{color:#fff}
 #cdu[hidden]{display:none}
 #cduBody{display:flex;flex-direction:column;align-items:center;gap:10px}
 #cduMsg{font-size:12px;line-height:1.7;color:var(--plan);margin:10px 0 0;text-align:center}
+#cduOcr{font-size:12px;line-height:1.7;color:var(--plan);margin:6px 0 0;text-align:center}
 #cduVideo,#cduShot{width:min(560px,62vh,100%);height:auto;border-radius:8px;background:#000}
 .cdu-grid{display:grid;grid-template-columns:auto auto auto;gap:8px 16px;align-items:center;
   justify-content:center;width:min(560px,100%);font-size:14px}
@@ -459,6 +460,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
     </div>
     <div id="cduBody"></div>
     <p id="cduMsg"></p>
+    <p id="cduOcr"></p>
   </div>
 </div>
 
@@ -550,26 +552,53 @@ function fmtSat(s){
 }
 
 /* ---- navigation log parser ------------------------------------------ */
-const RE_A = /^(\d{3})\s+(\d{3}|\.\.)\s+(\d{1,2}\.\d{2})\s+([NS]\d+[EW]\d+)\s*(.*)$/;
-const RE_B = /^(\d{3})\s+(\d{3}|\.\.)\s+(\d{1,2}\.\d{2})\s+([A-Z0-9][A-Z0-9\-\/]*|-[A-Z0-9]+)\s+(.*)$/;
+/* A 行 / B 行。スキャンした PDF では GS/TAS が抜けたり、B 行が名前で終わったり、
+   名前に小文字が混ざったりする（ETPl = ETP1 など）ので、そこだけ緩めてある。 */
+const RE_A = /^(\d{3})\s+(?:(\d{3}|\.\.)\s+)?(\d{1,2}\.\d{2})\s+([NS]\d+[EW]\d+)\s*(.*)$/;
+const RE_B = /^(\d{3})\s+(?:(\d{3}|\.\.)\s+)?(\d{1,2}\.\d{2})\s+([A-Za-z0-9][A-Za-z0-9\-\/]*|-[A-Za-z0-9]+)\s*(.*)$/;
 const RE_ALT  = /^(CLM|DEC|\d{4,5})$/;
 const RE_FUEL = /^\d{1,3}\.\d$/;
 
+/* \u30b3\u30d4\u30fc\u6a5f\u3084\u30b9\u30ad\u30e3\u30ca\u3067\u4f5c\u3063\u305f PDF \u306f\u6587\u5b57\u304c\u5316\u3051\u308b\uff081\u2192\u25a0\u3001J\u2192\u300d\u3001I\u2192\u5de5\u3001.\u2192\u3002\uff09\u3002
+   \u30d7\u30e9\u30f3\u306f\u82f1\u6570\u5b57\u3057\u304b\u4f7f\u308f\u306a\u3044\u306e\u3067\u3001\u5316\u3051\u305f\u5206\u3060\u3051\u6a5f\u68b0\u7684\u306b\u623b\u3059\u3002
+   \u5143\u304b\u3089\u7dba\u9e97\u306a PDF \u3067\u306f\u4f55\u3082\u8d77\u304d\u306a\u3044\u3002 */
+const OCR_FIX = {'\u25a0':'1','\u25a1':'E','\u300d':'J','\u5de5':'I','\u3002':'.','\u3001':',','\u2015':'-','\u4e00':'-','\u2010':'-','\u2013':'-','\u2014':'-','\uff4c':'l'};
+function deOcr(t){
+  let s = String(t==null?'':t);
+  s = s.replace(/[\u25a0\u25a1\u300d\u5de5\u3002\u3001\u2015\u4e00\u2010\u2013\u2014\uff4c]/g, c => OCR_FIX[c] || c);
+  /* \u5168\u89d2\u306e\u82f1\u6570\u5b57\u30fb\u8a18\u53f7\u3092\u534a\u89d2\u306b */
+  s = s.replace(/[\uff01-\uff5e]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  /* \u5c0f\u6570\u70b9\u306b\u7d1b\u308c\u8fbc\u3093\u3060\u7a7a\u767d\u3092\u8a70\u3081\u308b\uff08"06\u3002 15" \u2192 "06.15"\uff09\u3002
+     \u4e21\u5074\u304c\u7a7a\u3044\u3066\u3044\u308b "." \u306f\u5143\u306e\u30d7\u30e9\u30f3\u306e\u300c\u7a7a\u6b04\u300d\u306a\u306e\u3067\u89e6\u3089\u306a\u3044\u3002 */
+  s = s.replace(/(\d)\.[ \t]+(\d)/g, '$1.$2').replace(/(\d)[ \t]+\.(\d)/g, '$1.$2');
+  return s;
+}
+
 function parseNavlog(raw){
-  const all = String(raw||'').replace(/\r/g,'').replace(/\f/g,'\n').split('\n')
+  const all = deOcr(raw).replace(/\r/g,'').replace(/\f/g,'\n').split('\n')
                 .map(s => s.replace(/\u00a0/g,' ').trim());
 
   // --- flight identity (scan whole document, harmless if absent) ---
   const doc = all.join('\n');
   const info = {};
   let m;
-  if((m=/^\s*([A-Z]{3}\d{3,4})\/\d+\/\d+\s+([A-Z]{4})-([A-Z]{4})/m.exec(doc))){
+  if((m=/^\s*([A-Z]{3}\d{3,4})\/\d+\/\d+\s+([A-Z]{4})\s*-\s*([A-Z]{4})/m.exec(doc))){
     info.flight=m[1]; info.dep=m[2]; info.dest=m[3];
+  }else if((m=/^\s*([A-Z]{3}\d{3,4})\/\d+\/\d+/m.exec(doc))){
+    info.flight=m[1];                              /* 便名だけでも拾う（スキャン版で出発地が崩れる） */
+  }else if((m=/\b(ANA\d{3,4})\b/.exec(doc))){
+    info.flight=m[1];                              /* 途中のページだけの PDF は見出しから拾う */
   }
   if((m=/STD\s+(\d{4})Z?/.exec(doc)))  info.std=m[1];
   if((m=/STA\s+(\d{4})Z?/.exec(doc)))  info.sta=m[1];
   if((m=/\b([A-Z]{2}\d{3}[A-Z])\b/.exec(doc))) info.reg=m[1];
   if((m=/\b(\d{2}[A-Z]{3}\d{2})\b/.exec(doc))) info.date=m[1];
+  if(!info.date && (m=/(\d{4})\s*\/\s*(\d\s*\d)\s*\/\s*(\d\s*\d)/.exec(doc))){
+    /* 見出しの 2026/08/18 から 18AUG26 を作る（スキャンで数字の間に空白が入る） */
+    const MON = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    const mm = +m[2].replace(/\s/g,''), dd = m[3].replace(/\s/g,'');
+    if(mm >= 1 && mm <= 12) info.date = dd + MON[mm-1] + m[1].slice(2);
+  }
   if((m=/PLAN\s+B\/T\s+(\d+HR\d+MIN)\s+F\/T\s+(\d+HR\d+MIN)/.exec(doc))){ info.bt=m[1]; info.ft=m[2]; }
 
   /* -ETP/EEP/EXP/ET.LT の節にある「空港/ET/LT」を拾う
@@ -605,7 +634,15 @@ function parseNavlog(raw){
   const wps = [];
   for(let i=0;i<lines.length-1;i++){
     const a = RE_A.exec(lines[i]);   if(!a) continue;
-    const b = RE_B.exec(lines[i+1]); if(!b) continue;
+    /* 本来は次の行が B 行だが、スキャンした PDF では罫線などの切れ端が挟まる。
+       次の A 行に当たるまで、数行だけ先を見て B 行を探す。 */
+    let j = i+1, b = null;
+    for(; j < lines.length && j <= i+4; j++){
+      if(RE_A.test(lines[j])) break;
+      b = RE_B.exec(lines[j]);
+      if(b) break;
+    }
+    if(!b) continue;
 
     // line A tail: [ETO] ZTME [ALT] [FUEL] [TMP] [ZWIND] [MW/TP]
     let t = a[5].split(/\s+/).filter(Boolean), k = 0;
@@ -624,19 +661,22 @@ function parseNavlog(raw){
 
     // dashed rule that follows: (REM DIST) ... (ISA DEV)
     let rem='', isa='';
-    const rule = lines[i+2]||'';
-    if(/[-–]\s*[-–]/.test(rule) || /^ELEV\s/.test(rule)){
+    for(let k = j+1; k <= j+3 && k < lines.length; k++){
+      const rule = lines[k]||'';
+      if(RE_A.test(rule)) break;
+      if(!(/[-–]\s*[-–]/.test(rule) || /^ELEV\s/.test(rule) || /\(\s*\d+\s*\)/.test(rule))) continue;
       const p = rule.match(/\((\s*\d+\s*)\)/g) || [];
-      if(p[0]) rem = p[0].replace(/[()\s]/g,'');
-      if(p[1]) isa = p[1].replace(/[()\s]/g,'');
+      if(p[0] && !rem) rem = p[0].replace(/[()\s]/g,'');
+      if(p[1] && !isa) isa = p[1].replace(/[()\s]/g,'');
+      if(rem) break;
     }
 
     wps.push({
       seq: wps.length+1,
-      name: b[4],
+      name: String(b[4]).toUpperCase(),
       pos:  a[4],
-      tc: a[1], gs: a[2]==='..'?'':a[2],
-      mc: b[1], tas: b[2]==='..'?'':b[2],
+      tc: a[1], gs: (!a[2]||a[2]==='..')?'':a[2],
+      mc: b[1], tas: (!b[2]||b[2]==='..')?'':b[2],
       ctme: a[3], rtme: b[3],
       ctmeMin: ctmeToMin(a[3]),
       ztme, dist, rem, isa,
@@ -646,7 +686,7 @@ function parseNavlog(raw){
       mwtp: (mwtp==='..'||mwtp==='. ..')?'':mwtp,
       ato:'', alt_in:'', rmg:'', sat:'', spot:''
     });
-    i += 1;
+    i = j;                 /* B 行まで読み飛ばす */
   }
   if(wps.length) info.dest = wps[wps.length-1].name;
   return {info, wps};
@@ -671,20 +711,34 @@ async function pdfToText(buf){
     return null;
   }
   try{
-    const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+    /* 日本語フォント（90ms-RKSJ-H など）の PDF は CMap が無いと 1 文字も取り出せない。
+       vendor/cmaps/ に同梱してあるので、その場所を必ず教える。 */
+    const pdf = await pdfjsLib.getDocument({
+      data: buf,
+      cMapUrl: new URL('vendor/cmaps/', location.href).href,
+      cMapPacked: true
+    }).promise;
     const pages = [];
     for(let p=1;p<=pdf.numPages;p++){
       const page = await pdf.getPage(p);
       const tc = await page.getTextContent();
-      const rows = new Map();
-      for(const it of tc.items){
-        if(!it.str) continue;
-        const y = Math.round(it.transform[5]/2)*2;
-        if(!rows.has(y)) rows.set(y,[]);
-        rows.get(y).push({x:it.transform[4], w:it.width||0, s:it.str});
+      /* 同じ行の文字を集める。スキャンした PDF は同じ行でも高さが少しずつ違うので、
+         固定の目盛りで丸めず、文字の高さに応じた幅で寄せる（1 行が 2 行に割れるのを防ぐ）。 */
+      const items = tc.items.filter(it => it.str)
+                            .map(it => ({x:it.transform[4], y:it.transform[5],
+                                         h:it.height||8, w:it.width||0, s:it.str}))
+                            .sort((a,b)=> b.y - a.y);
+      const rows = [];
+      let cur = null;
+      for(const it of items){
+        if(!cur || Math.abs(cur.y - it.y) > Math.max(2, it.h*0.6)){
+          cur = {y: it.y, items: []};
+          rows.push(cur);
+        }
+        cur.items.push(it);
       }
-      const out = [...rows.keys()].sort((a,b)=>b-a).map(y=>{
-        const items = rows.get(y).sort((a,b)=>a.x-b.x);
+      const out = rows.map(row=>{
+        const items = row.items.sort((a,b)=>a.x-b.x);
         let line='', endX=null;
         for(const it of items){
           const cw = it.s.length ? (it.w/it.s.length) : 4;
@@ -1418,6 +1472,7 @@ function matchWpt(pos){
 /* --- 画面 --- */
 let cduStream = null, cduWorker = null;
 function cduSay(m){ $('#cduMsg').innerHTML = m || ''; }
+function ocrSay(m){ $('#cduOcr').innerHTML = m || ''; }
 function cduStop(){
   if(cduStream){ cduStream.getTracks().forEach(t=>t.stop()); cduStream = null; }
 }
@@ -1425,12 +1480,14 @@ function cduClose(){
   cduStop();
   $('#cdu').hidden = true;
   $('#cduBody').innerHTML = '';
-  cduSay('');
+  cduSay(''); ocrSay('');
 }
 async function cduOpen(){
   if(!STATE.wps.length){ setStatus('先にプランを読み込んでください','err'); return; }
   $('#cduInfo').textContent = planPrint(STATE.info, STATE.wps);
   $('#cdu').hidden = false;
+  /* 部品の取り込みはカメラとは別に進める（カメラが使えなくても地上で準備できる） */
+  ocrPrepUI();
   await cduCamera();
 }
 async function cduCamera(){
@@ -1454,12 +1511,31 @@ async function cduCamera(){
     return;
   }
   $('#cduShoot').onclick = ()=> cduShoot(video);
-  /* 文字認識の部品はまだ端末に無ければ初回だけ取りに行く。機内で困らないよう先に知らせる */
-  if(!(await ocrCached())){
-    cduSay('CDU の <b>POS REPORT</b> の画面いっぱいにカメラを向けて撮影してください。<br>' +
-      (navigator.onLine === false
-        ? '<b style="color:var(--late)">文字認識の部品（約 9MB）がまだ端末にありません。</b>電波のある所で一度使っておくと、次からは機内でも読めます。'
-        : '初回だけ文字認識の部品（約 9MB）を取り込みます。取り込めば次からは機内でも使えます。'));
+}
+
+/* 文字認識の部品の状態を出し、足りなければ（電波があれば）その場で取り込む。
+   この画面を地上で一度開けば、機内では端末の中だけで動く。 */
+async function ocrPrepUI(){
+  const ok  = t => '<span style="color:var(--ok)">' + t + '</span>';
+  const bad = t => '<b style="color:var(--late)">' + t + '</b>';
+  if(await ocrCached()){
+    ocrBlobs();          /* 先に blob を作っておくと撮影後が速い */
+    ocrSay(ok('文字認識の部品は端末にあります（電波が無くても読めます）'));
+    return;
+  }
+  if(navigator.onLine === false){
+    ocrSay(bad('文字認識の部品（約 9MB）がまだ端末にありません。') +
+           '電波のある所でこの画面を一度開くと取り込めます。');
+    return;
+  }
+  try{
+    ocrSay('文字認識の部品（約 9MB）を取り込んでいます…');
+    await ocrStore(m => ocrSay(m + '（初回だけ・約 9MB）'));
+    await ocrBlobs();
+    ocrSay(ok('取り込みました。次からは電波が無くても読めます。'));
+  }catch(err){
+    ocrSay(bad('部品を取り込めませんでした（' + esc(err && err.message || 'エラー') + '）') +
+           '<br>電波の良い所でもう一度開いてください。');
   }
 }
 
@@ -1513,22 +1589,17 @@ async function cduShoot(video){
   cduReview(parseCdu(text), text);
 }
 
-/* Tesseract を読み込んで 1 枚だけ読む */
+/* Tesseract を読み込んで 1 枚だけ読む。
+   機内（電波なし）で確実に動かすため、部品は必ず端末の navlog-ocr から取り出し、
+   blob: にしてから worker に渡す。ネットにも Service Worker にも頼らない。 */
 async function cduOcr(canvas){
-  if(!window.Tesseract){
-    if(!navigator.onLine){
-      const has = await ocrCached();
-      if(!has) throw new Error('OCR の部品が端末にありません。一度オンラインで CDU 読込を開いてください');
-    }
-    await loadScript(OCR_BASE + 'tesseract.min.js');
-  }
-  /* workerBlobURL を切って本物の URL から worker を作る。
-     blob: から作ると WebAssembly 本体の置き場所を見失う（読み込みが止まる）。 */
+  const map = await ocrReady(msg => { const st = $('#cduStep'); if(st) st.textContent = msg; });
+  if(!window.Tesseract) await loadScript(map['tesseract.min.js']);
   const worker = await Tesseract.createWorker('eng', 1, {
-    workerPath:   ocrUrl('worker.min.js'),
-    workerBlobURL: false,
-    corePath:     ocrUrl(),
-    langPath:     ocrUrl('lang'),
+    workerPath:    ocrWorkerBlob(map),
+    workerBlobURL: false,          /* 既に blob なので二重に包ませない */
+    corePath:      map[ocrCoreName()] + '#core.js',  /* .js で終わると そのまま使われる */
+    langPath:      'ocr',          /* fetch を差し替えているので中身は何でもよい */
     gzip: true,
     logger: m => {
       const st = $('#cduStep');
@@ -1546,11 +1617,87 @@ async function cduOcr(canvas){
     worker.terminate().catch(()=>{});
   }
 }
+
+/* ---- OCR 部品の取り込みと取り出し ------------------------------------ */
+const OCR_CACHE = 'navlog-ocr';
+/* SIMD が使える端末なら速い方を使う（iPadOS 16.4 以降）。使えなければ通常版 */
+function ocrSimd(){
+  try{
+    return WebAssembly.validate(new Uint8Array(
+      [0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]));
+  }catch(e){ return false; }
+}
+function ocrCoreName(){
+  return ocrSimd() ? 'tesseract-core-simd-lstm.wasm.js' : 'tesseract-core-lstm.wasm.js';
+}
+/* 端末に置いておく物。約 9MB */
+function ocrFiles(){
+  const core = ocrCoreName();
+  return ['tesseract.min.js', 'worker.min.js', core, core.replace(/\.js$/,''), 'lang/eng.traineddata.gz'];
+}
+const ocrShort = f => f.split('/').pop();
+
+/* 全部そろっているか */
 async function ocrCached(){
   try{
-    const c = await caches.open('navlog-ocr');
-    return !!(await c.match(ocrUrl('tesseract.min.js')));
+    const c = await caches.open(OCR_CACHE);
+    for(const f of ocrFiles()) if(!(await c.match(ocrUrl(f)))) return false;
+    return true;
   }catch(e){ return false; }
+}
+/* ネットのある間に端末へ取り込む（ページ側で保存するので Service Worker に依存しない） */
+async function ocrStore(onStep){
+  const cache = await caches.open(OCR_CACHE);
+  const files = ocrFiles();
+  for(let i=0;i<files.length;i++){
+    const url = ocrUrl(files[i]);
+    if(await cache.match(url)) continue;
+    if(onStep) onStep('文字認識の部品を取り込んでいます ' + (i+1) + '/' + files.length);
+    const res = await fetch(url, {cache:'reload'});
+    if(!res || !res.ok) throw new Error('取り込めませんでした（' + ocrShort(files[i]) + '）');
+    await cache.put(url, res.clone());
+  }
+}
+let ocrMap = null;                 /* 端末の中身 → blob: URL（1 セッション使い回す） */
+async function ocrBlobs(){
+  if(ocrMap) return ocrMap;
+  const cache = await caches.open(OCR_CACHE);
+  const map = {};
+  for(const f of ocrFiles()){
+    const res = await cache.match(ocrUrl(f));
+    if(!res) return null;
+    map[ocrShort(f)] = URL.createObjectURL(await res.blob());
+  }
+  ocrMap = map;
+  return map;
+}
+async function ocrReady(onStep){
+  let map = await ocrBlobs();
+  if(map) return map;
+  if(navigator.onLine === false)
+    throw new Error('文字認識の部品が端末にありません。電波のある所で一度取り込んでください');
+  await ocrStore(onStep);
+  map = await ocrBlobs();
+  if(!map) throw new Error('文字認識の部品を用意できませんでした');
+  return map;
+}
+/* worker の中の fetch / XHR を blob: に付け替える薄い皮をかぶせる。
+   これで worker 側は一切ネットワークを見に行かない（機内でも確実に動く）。 */
+function ocrWorkerBlob(map){
+  if(map.__worker) return map.__worker;
+  const src =
+    'var __M=' + JSON.stringify(map) + ';\n' +
+    /* 長い名前から見る（…wasm.js が …wasm に食われないように） */
+    'var __K=Object.keys(__M).sort(function(a,b){return b.length-a.length});\n' +
+    'function __R(u){var s=String((u&&u.url)||u||"");' +
+      'for(var i=0;i<__K.length;i++){ if(s.indexOf(__K[i])>=0) return __M[__K[i]]; } return s; }\n' +
+    'var __F=self.fetch.bind(self); self.fetch=function(u,o){ return __F(__R(u),o); };\n' +
+    'var __X=XMLHttpRequest.prototype.open;' +
+    'XMLHttpRequest.prototype.open=function(m,u){' +
+      'var a=[].slice.call(arguments); a[1]=__R(u); return __X.apply(this,a); };\n' +
+    'importScripts(' + JSON.stringify(map['worker.min.js']) + ');';
+  map.__worker = URL.createObjectURL(new Blob([src], {type:'text/javascript'}));
+  return map.__worker;
 }
 
 /* 読み取り結果を見せてから反映する */
