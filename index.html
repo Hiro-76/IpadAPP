@@ -1442,6 +1442,29 @@ const okDir   = s => /^\d{1,3}$/.test(s) && +s <= 360;
 /* 斜線入りの 0 は、丸い文字としても読まれる（Ø → O Q D P G U）。数字の並びの中なら 0 に戻す */
 const unzero = s => String(s).replace(/[OQDPGU]/g, '0');
 
+/* CDU の POS FUEL は「85.8」のように必ず小数 1 桁。
+   点が読めずに「858」と並んだ時も、末尾 1 桁を小数として戻す。
+   10.0〜999.9 の範囲から外れた物は値として扱わない（埃で桁が増えた読み） */
+function cduFuelVal(s){
+  const dg = String(s||'').replace(/\D/g,'');
+  if(dg.length < 3 || dg.length > 4) return null;
+  const v = dg.slice(0,-1) + '.' + dg.slice(-1);
+  return (+v >= 10 && +v < 999) ? v : null;
+}
+/* 右下だけを数字として読んだ結果から FUEL を拾う。
+   場所だけを頼りにする時（needDot）は、小数点が読めた並びしか採らない
+   （時刻などの 4 桁を FUEL として入れてしまわないため）。 */
+function cduFuelText(text, needDot){
+  const cand = [];
+  (String(text||'').match(/\d[\d.,]*/g) || []).forEach(tok => {
+    const dot = /^\d{1,3}[.,]\d$/.test(tok);
+    const v = cduFuelVal(tok);
+    if(v) cand.push({v, dot});
+  });
+  const hit = cand.find(c => c.dot) || (needDot ? null : cand[0]);
+  return hit ? hit.v : null;
+}
+
 /* --- 読み取った文字列から 5 項目を拾う（OCR に依存しないので単体で試せる） --- */
 function parseCdu(text){
   const t = String(text||'').toUpperCase().replace(/[｜|]/g,'/');
@@ -1507,12 +1530,17 @@ function parseCdu(text){
     out.temp = (n <= 99) ? v : null;
   }
 
-  /* POS FUEL: 85.8 → RMG。埃で数字が増えないよう 1〜3 桁 + 小数 1 桁に限る */
-  m = /POS\s*FUEL\D{0,40}(\d{2,3})\s*\.\s*(\d)/.exec(t);   /* 値は次の行に来る */
+  /* POS FUEL: 85.8 → RMG。値は次の行に来る。
+     小数点は薄くて消えることが多いので、点が読めなくても数字の並びから戻す
+     （CDU の FUEL は必ず小数 1 桁なので、末尾の 1 桁が小数）。 */
+  m = /(?:POS\s*)?F[UO]E[L1I]\D{0,40}([\dOQDPGU]{2,3})\s*[.,]\s*(\d)/.exec(t);
   if(m){
-    const f = +(m[1] + '.' + m[2]);
-    out.fuel = (f >= 10 && f < 999) ? (m[1] + '.' + m[2]) : null;
-    if(!out.fuel) out.seen.fuel = m[1] + '.' + m[2];
+    const v = cduFuelVal(unzero(m[1]) + '.' + m[2]);
+    out.fuel = v;
+    if(!v) out.seen.fuel = m[1] + '.' + m[2];
+  }else{
+    m = /(?:POS\s*)?F[UO]E[L1I]\D{0,40}([\dOQDPGU]{3,4})\b/.exec(t);
+    if(m) out.fuel = cduFuelVal(unzero(m[1]));
   }
 
   /* WIND: 180°/30KT。埃を点として拾うので、区切りの前後に混じる . は無視する。
@@ -1845,6 +1873,50 @@ function cduWordBox(words, prep){
   };
 }
 
+/* POS FUEL の値は CDU 画面の右下、「POS FUEL」と書かれたすぐ下にある。
+   文字として拾えなかった時のために、語の位置から値のある場所だけを切り出す。
+   FUEL の字が読めていれば その真下、読めていなければ文字の載っている範囲の右下。 */
+function cduFuelBox(words, prep){
+  if(!prep || !prep.srcBox || !words || !words.length) return null;
+  const s = prep.srcScale, b = prep.srcBox;
+  const clip = (x, y, w, h) => {
+    const x0 = Math.max(b.x, x), y0 = Math.max(b.y, y);
+    const x1 = Math.min(b.x + b.w, x + w), y1 = Math.min(b.y + b.h, y + h);
+    return (x1 - x0 > 8 && y1 - y0 > 8) ? {x:x0, y:y0, w:x1-x0, h:y1-y0} : null;
+  };
+  /* 1 行の高さ。語ごとの箱は上下の行とくっつくことがあるので中央値を使う */
+  const hh = words.filter(v => v.text.length >= 2).map(v => (v.bbox.y1 - v.bbox.y0) / s).sort((a,c)=>a-c);
+  const hm = hh.length ? hh[hh.length>>1] : 0;
+
+  /* FUEL は F が落ちたり L が 1 に化けたりする */
+  const labs = words.filter(v => /^[FP]?[UO]E[L1I]$/.test(v.text) || v.text === 'FUEL');
+  if(labs.length && hm > 0){
+    /* 同じ画面に FUEL が複数あれば一番下（POS FUEL は画面の最下段） */
+    const lab = labs.reduce((a, v) => (v.bbox.y1 > a.bbox.y1 ? v : a), labs[0]);
+    const x = b.x + lab.bbox.x0 / s, y = b.y + lab.bbox.y0 / s;
+    const w = (lab.bbox.x1 - lab.bbox.x0) / s;
+    /* 値は FUEL の 1 行下（間に空行が入ることもある）。
+       字の左右にずれて出るので、横は広めに取る。 */
+    const box = clip(x - hm*4, y + hm*0.75, w + hm*7, hm*2.7);
+    if(box){ box.textH = hm; box.byLabel = true; return box; }
+  }
+  /* FUEL の字が読めていない場合: 文字のある範囲の右下 1/3 */
+  const use = words.filter(v => v.confidence >= 50 && /[A-Z0-9]/.test(v.text));
+  if(use.length < 3) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, hs = [];
+  use.forEach(v => {
+    x0 = Math.min(x0, v.bbox.x0); x1 = Math.max(x1, v.bbox.x1);
+    y0 = Math.min(y0, v.bbox.y0); y1 = Math.max(y1, v.bbox.y1);
+    hs.push(v.bbox.y1 - v.bbox.y0);
+  });
+  hs.sort((a,c)=>a-c);
+  const h = hs[hs.length>>1] / s;
+  const bw = (x1-x0)/s, bh = (y1-y0)/s;
+  const box = clip(b.x + x0/s + bw*0.40, b.y + y0/s + bh*0.58, bw*0.60 + h, bh*0.42 + h*1.5);
+  if(box){ box.textH = h; box.byLabel = false; }
+  return box;
+}
+
 /* 半径 r の四角い窓の平均（横→縦の 2 回で済ませる） */
 function boxMean(src, W, H, r){
   const tmp = new Float32Array(W*H), out = new Float32Array(W*H);
@@ -1966,7 +2038,7 @@ async function cduRead(source){
     /* 1 回目は写真全体を読む（勝手に切って文字を捨てない）。
        そこで見つかった語の位置から画面の範囲と文字の大きさが分かるので、
        2 回目はそこだけを大きく引き伸ばして読み直す。 */
-    const shots = [], reads = [];
+    const shots = [], reads = [], passes = [];
     let step = 0;
     const runOnce = async (opt, total) => {
       if(!alive()) throw new Error('やめました');
@@ -1978,7 +2050,7 @@ async function cduRead(source){
       if(!alive()) throw new Error('やめました');
       const rr  = parseCdu(String(res));
       if(opt.flip) rr.__flip = true;
-      shots.push(cv); reads.push(rr);
+      shots.push(cv); reads.push(rr); passes.push({cv, res});
       text += (text ? '\n---- ' + JSON.stringify(opt) + '\n' : '') + String(res);
       return {cv, res, rr};
     };
@@ -2006,6 +2078,31 @@ async function cduRead(source){
     }
     r = cduMerge(reads);
     if(r.base && shots[r.base]){ shot.replaceWith(shots[r.base]); shot = shots[r.base]; shot.id = 'cduShot'; }
+
+    /* POS FUEL は画面の右下にあり、文字の並びとしては拾いにくい。
+       ここまでで取れていなければ、語の位置からその場所だけを切り出し、
+       数字だけを読む設定でもう一度読む。 */
+    if(!r.fuel && alive()){
+      const cands = passes.map(p => ({p, fb: cduFuelBox(p.res.words, p.cv)}))
+                          .filter(c => c.fb)
+                          .sort((a,c) => (c.fb.byLabel?1:0) - (a.fb.byLabel?1:0));
+      for(const c of cands.slice(0,2)){
+        if(!alive()) break;
+        const fb = c.fb;
+        /* 小さく切るので、文字が 48px 前後になるまで引き伸ばす。
+           元より小さくはしない（縮めると数字が潰れて読めなくなる） */
+        const side = Math.max(fb.w, fb.h);
+        const long = Math.min(1600, Math.max(side,
+          fb.textH > 0 ? Math.round(side * (48/fb.textH)) : side*2));
+        const fcv  = cduPrep(source, {box: fb, long, fine: true});
+        const fres = await cduOcr(fcv, pct => {
+          if(alive()) cduStep('FUEL を読み取り中  ' + pct + '%');
+        }, alive, OCR_NUM);
+        text += '\n---- FUEL ' + JSON.stringify(fb) + '\n' + String(fres);
+        const v = cduFuelText(String(fres), !fb.byLabel);
+        if(v){ r.fuel = v; r.byBox = true; break; }
+      }
+    }
   }catch(err){
     if(!alive()) return;                 /* やめた／撮り直した分は黙って捨てる */
     console.error(err);
@@ -2025,7 +2122,17 @@ async function cduRead(source){
    機内（電波なし）で確実に動かすため、部品は必ず端末の navlog-ocr から取り出し、
    blob: にしてから worker に渡す。ネットにも Service Worker にも頼らない。 */
 /* worker は 1 つを使い回す（毎回作ると数秒かかる）。画面を閉じたら片付ける。 */
-let ocrJob = null, ocrNote = null;
+/* CDU は大文字だが、時刻の z と °c だけ小文字。この 2 文字を許すと
+   「0416z」が「94162」に化けるのを防げる。
+   右下の FUEL だけを読む時は数字に絞る（文字に化けさせない）。 */
+const OCR_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/.:-+°<>zc ';
+const OCR_NUM   = '0123456789.';
+let ocrJob = null, ocrNote = null, ocrChars = '';
+async function ocrSetChars(worker, chars){
+  if(chars === ocrChars) return;
+  await worker.setParameters({tessedit_char_whitelist: chars, preserve_interword_spaces: '1'});
+  ocrChars = chars;
+}
 async function ocrGetWorker(){
   if(ocrJob) return ocrJob;
   const map = await ocrReady(msg => cduStep(msg));
@@ -2042,22 +2149,19 @@ async function ocrGetWorker(){
       ocrNote(Math.round((m.progress||0)*100));
     }
   });
-  await w.setParameters({
-    /* CDU は大文字だが、時刻の z と °c だけ小文字。この 2 文字を許すと
-       「0416z」が「94162」に化けるのを防げる。 */
-    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/.:-+°<>zc ',
-    preserve_interword_spaces: '1'
-  });
+  ocrChars = '';
+  await ocrSetChars(w, OCR_CHARS);
   ocrJob = w;
   return w;
 }
 function ocrDrop(){
-  const w = ocrJob; ocrJob = null; ocrNote = null;
+  const w = ocrJob; ocrJob = null; ocrNote = null; ocrChars = '';
   if(w) w.terminate().catch(()=>{});
 }
-async function cduOcr(canvas, onPct, alive){
+async function cduOcr(canvas, onPct, alive, chars){
   const worker = await ocrGetWorker();
   if(alive && !alive()){ ocrDrop(); throw new Error('やめました'); }
+  await ocrSetChars(worker, chars || OCR_CHARS);
   ocrNote = onPct || null;
   try{
     const {data} = await worker.recognize(canvas, {}, {text:true, blocks:true});
@@ -2184,7 +2288,8 @@ function cduReview(r, raw, shot){
     const note = fixed[key] ? '読み ' + fixed[key] + ' を補正'
                : seen[key]  ? '読み ' + seen[key] + ' は値としておかしい'
                : odd[key]   ? odd[key] + ' — 確認してください'
-               : weak[key]  ? '読み直しで取れた値・要確認' : '';
+               : weak[key]  ? '読み直しで取れた値・要確認'
+               : (key === 'fuel' && r.byBox) ? '右下の位置から読み取り・要確認' : '';
     return '<div class="k">' + k + '</div>' +
       '<div class="v' + (v ? '' : ' miss') + '">' + esc(v || '読み取れず') +
         (note ? '<span class="fix">' + esc(note) + '</span>' : '') +
