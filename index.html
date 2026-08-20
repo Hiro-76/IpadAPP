@@ -178,6 +178,8 @@ html[data-theme="day"] .btn.now-to{color:#fff}
 /* 縦向きのカメラだと縦長になってボタンが画面の外へ出てしまうので、高さを必ず抑える */
 #cduVideo,#cduShot{width:min(560px,100%);height:auto;max-height:42vh;object-fit:contain;
   border-radius:8px;background:#000}
+/* 確認画面では「読み取りに使った絵」を小さく添える */
+#cduShot.thumb{width:min(300px,70%);max-height:22vh;opacity:.85}
 .cdu-grid{display:grid;grid-template-columns:auto auto auto;gap:8px 16px;align-items:center;
   justify-content:center;width:min(560px,100%);font-size:14px}
 .cdu-grid .k{font-size:11px;letter-spacing:.12em;color:var(--plan)}
@@ -1427,17 +1429,29 @@ function zeroFix(s, okFn){
 }
 const okClock = s => /^\d{4}$/.test(s) && +s.slice(0,2) < 24 && +s.slice(2) < 60;
 const okDir   = s => /^\d{1,3}$/.test(s) && +s <= 360;
+/* 斜線入りの 0 は、丸い文字としても読まれる（Ø → O Q D P G U）。数字の並びの中なら 0 に戻す */
+const unzero = s => String(s).replace(/[OQDPGU]/g, '0');
 
 /* --- 読み取った文字列から 5 項目を拾う（OCR に依存しないので単体で試せる） --- */
 function parseCdu(text){
   const t = String(text||'').toUpperCase().replace(/[｜|]/g,'/');
   const out = {pos:null, ata:null, alt:null, temp:null, wind:null, fixed:{}, seen:{}};
 
-  /* ATA / ETA は 4 桁 + Z。先に出てくる方が ATA。
-     小文字の z は OCR が 2 と読むことがあるので [Z2] まで許す。 */
-  let times = [...t.matchAll(/(\d{4})\s*[Z2]\b/g)].map(m => m[1]);
+  const lines = t.split(/\r?\n/);
+  /* CDU の並びは
+       POS            ATA    ALT
+       CARTO         0416z  FL340
+     なので、FL のある行が「POS・ATA・ALT の値の行」。ETA を掴まないよう、その行を先に見る。 */
+  const RE_FL   = /FL\s*([\dOQDPGU]{3})/;
+  const RE_TIME = /([\dOQDPGU][\d][\d][\dOQDPGU])\s*[Z2]\b/g;
+  const valIdx  = lines.findIndex(l => RE_FL.test(l));
+  const scan    = s => [...String(s).matchAll(RE_TIME)].map(x => unzero(x[1]));
+
+  /* ATA / ETA は 4 桁 + z。値の行にあるものを最優先、無ければ先に出てくる方 */
+  let times = valIdx >= 0 ? scan(lines[valIdx]) : [];
+  if(!times.length) times = scan(t);
   if(!times.length){
-    /* Z が落ちた場合は ATA ラベルの後ろの 4 桁を採る */
+    /* z が落ちた場合は ATA ラベルの後ろの 4 桁を採る */
     const only = /\bATA\b\D{0,8}(\d{4})/.exec(t);
     if(only) times = [only[1]];
   }
@@ -1448,15 +1462,16 @@ function parseCdu(text){
     out.ata = fix;
   }
 
-  /* ALT: FL190 / FL 190。3 桁を優先し、10 の倍数でなければ末尾の 8/9 を 0 と見る */
-  let m = /FL\s*(\d{3})/.exec(t) || /FL\s*(\d{2})/.exec(t);
+  /* ALT: FL340。10 の倍数でなければ末尾の 8/9 を 0 と見る */
+  let m = RE_FL.exec(t);
   if(m){
-    let a = m[1];
-    if(a.length === 3 && +a % 10 !== 0 && /[89]$/.test(a)){
-      out.fixed.alt = a; a = a.slice(0,2) + '0';    /* FL348 → FL340 */
+    let a = unzero(m[1]);
+    if(+a % 10 !== 0 && /[89]$/.test(a)){
+      out.fixed.alt = m[1]; a = a.slice(0,2) + '0';    /* FL348 → FL340 */
     }
-    out.alt = (+a >= 10 && +a <= 500) ? a : null;
+    out.alt = (/^\d{3}$/.test(a) && +a >= 10 && +a <= 500) ? a : null;
     if(!out.alt) out.seen.alt = m[1];
+    else if(a !== m[1] && !out.fixed.alt) out.fixed.alt = m[1];
   }
 
   /* TEMP: -25°C / -25 C / M25 C。°C が読めない時は WIND の行の頭の数字を採る
@@ -1470,7 +1485,7 @@ function parseCdu(text){
   }
 
   /* WIND: 180°/30KT。埃を点として拾うので、区切りの前後に混じる . は無視する */
-  m = /(\d{2,3})\s*°?[.\s]*\/[.\s]*(\d{1,3})[.\s]*KT/.exec(t);
+  m = /(\d{2,3})\s*°?[-.\s]*\/[-.\s]*(\d{1,3})[-.\s]*KT/.exec(t);
   if(m){
     const dir = zeroFix(m[1], okDir);               /* 924 → 024 */
     if(dir && dir !== m[1]) out.fixed.wind = m[1] + '/' + m[2];
@@ -1478,13 +1493,16 @@ function parseCdu(text){
     if(!out.wind) out.seen.wind = m[1] + '/' + m[2];
   }
 
-  /* POS: まず "POS" と書かれた行の右端の語。見出し（POS REPORT）と
-     POS FUEL の行は除く。見つからなければ ATA の行とその直前から拾う。 */
-  const lines = t.split(/\r?\n/);
+  /* POS: 値の行（FL のある行）の地点名。無ければ "POS" と書かれた行、
+     それも無ければ ATA の行とその直前から拾う。 */
   const LABEL = /^(POS|ATA|ALT|EST|ETA|NEXT|TEMP|WIND|REPORT|FUEL|KT|Z|SAT|WPT|OF)$/;
-  const pick = s => ((s||'').replace(/FL\s*\d{2,3}/g,' ').match(/\b[A-Z][A-Z0-9]{1,6}\b/g) || [])
+  const pick = s => ((s||'').replace(/FL\s*[\dOQDPGU]{2,3}/g,' ').match(/\b[A-Z][A-Z0-9]{1,6}\b/g) || [])
                       .filter(n => !LABEL.test(n));
-  for(const l of lines){
+  if(valIdx >= 0){
+    const hit = pick(lines[valIdx].replace(RE_TIME, ' '));
+    if(hit.length) out.pos = hit[0];
+  }
+  for(const l of out.pos ? [] : lines){
     if(/REPORT/.test(l) || /POS\s*FUEL/.test(l)) continue;
     const head = /\bPOS\b(.*)$/.exec(l);
     if(!head) continue;
@@ -1596,6 +1614,7 @@ async function cduFromFile(file){
   src.getContext('2d').drawImage(img, 0, 0);
   src.videoWidth = img.width; src.videoHeight = img.height;   /* cduPrep は video と同じ形で受ける */
   await cduRead(src);
+  if(img.close) img.close();
 }
 async function loadPicture(file){
   if(window.createImageBitmap){
@@ -1640,13 +1659,13 @@ async function ocrPrepUI(){
    CDU を写した写真は「明るい操作パネルの中に、暗い画面がひとつ」という形になる。
    画面の外まで含めて一度に白黒にすると、画面の中の白い文字が背景と同じ側に入って
    消えてしまうので、先に暗い画面の部分だけを切り出してから白黒にする。 */
-function cduPrep(video){
+function cduPrep(video, opt){
   const w = video.videoWidth, h = video.videoHeight;
   const tmp = document.createElement('canvas');
   tmp.width = w; tmp.height = h;
   const tg = tmp.getContext('2d', {willReadFrequently:true});
   tg.drawImage(video, 0, 0, w, h);
-  const box = cduScreenBox(tg, w, h);
+  const box = (opt && opt.whole) ? {x:0, y:0, w:w, h:h} : cduScreenBox(tg, w, h);
 
   /* 長辺 1600px を狙う。小さい絵は 2 倍まで引き伸ばす（細い文字が読めるようになる） */
   const scale = Math.min(2, 1600 / Math.max(box.w, box.h));
@@ -1656,23 +1675,29 @@ function cduPrep(video){
   const g = cv.getContext('2d', {willReadFrequently:true});
   g.drawImage(tmp, box.x, box.y, box.w, box.h, 0, 0, cv.width, cv.height);
 
-  const img = g.getImageData(0, 0, cv.width, cv.height), d = img.data;
-  let sum = 0;
-  for(let k=0;k<d.length;k+=4){
-    const v = (d[k]*0.299 + d[k+1]*0.587 + d[k+2]*0.114);
-    d[k] = d[k+1] = d[k+2] = v; sum += v;
-  }
-  const mean = sum / (d.length/4);
-  /* 文字は少数派。明るい側が少なければ「黒地に白文字」（＝CDU）なので反転し、
-     暗い側が少なければ紙や明るい画面なのでそのまま。どちらでも白地に黒文字にする。 */
-  let bright = 0;
-  for(let k=0;k<d.length;k+=4) if(d[k] > mean) bright++;
-  const invert = bright <= (d.length/4)/2;
   const W = cv.width, H = cv.height;
-  const on = new Uint8Array(W*H);
-  for(let i=0,k=0;i<on.length;i++,k+=4){
-    const hi = d[k] > mean;
-    on[i] = (invert ? hi : !hi) ? 1 : 0;       /* 少数派＝文字 */
+  const img = g.getImageData(0, 0, W, H), d = img.data;
+  const gray = new Float32Array(W*H);
+  let sum = 0;
+  for(let i=0,k=0;i<gray.length;i++,k+=4){
+    const v = (d[k]*0.299 + d[k+1]*0.587 + d[k+2]*0.114);
+    gray[i] = v; sum += v;
+  }
+  const mean = sum / gray.length;
+  /* 文字は少数派。明るい側が少なければ「黒地に白文字」（＝CDU）。
+     opt.flip を渡すと、この判定をわざと逆にして読み直せる。 */
+  let bright = 0;
+  for(let i=0;i<gray.length;i++) if(gray[i] > mean) bright++;
+  let up = bright <= gray.length/2;              /* true = 明るい方が文字 */
+  if(opt && opt.flip) up = !up;
+
+  /* しきい値は周りの明るさから決める（ベゼルの映り込みや画面のムラに強い）。
+     一枚の平均だけで切ると、明るい枠が写り込んだ時に文字が背景側に沈む。 */
+  const bg  = boxMean(gray, W, H, Math.max(8, Math.round(Math.min(W,H)/22)));
+  const C   = 10;
+  const on  = new Uint8Array(W*H);
+  for(let i=0;i<gray.length;i++){
+    on[i] = (up ? (gray[i] > bg[i] + C) : (gray[i] < bg[i] - C)) ? 1 : 0;
   }
   /* 画面の埃を落とす（周りに仲間がいない点は文字ではない） */
   const keep = new Uint8Array(on);
@@ -1691,6 +1716,33 @@ function cduPrep(video){
   }
   g.putImageData(img, 0, 0);
   return cv;
+}
+
+/* 半径 r の四角い窓の平均（横→縦の 2 回で済ませる） */
+function boxMean(src, W, H, r){
+  const tmp = new Float32Array(W*H), out = new Float32Array(W*H);
+  for(let y=0;y<H;y++){
+    const o = y*W;
+    let acc = 0, n = 0;
+    for(let x=0;x<=r && x<W;x++){ acc += src[o+x]; n++; }
+    for(let x=0;x<W;x++){
+      tmp[o+x] = acc/n;
+      const add = x+r+1, del = x-r;
+      if(add < W){ acc += src[o+add]; n++; }
+      if(del >= 0){ acc -= src[o+del]; n--; }
+    }
+  }
+  for(let x=0;x<W;x++){
+    let acc = 0, n = 0;
+    for(let y=0;y<=r && y<H;y++){ acc += tmp[y*W+x]; n++; }
+    for(let y=0;y<H;y++){
+      out[y*W+x] = acc/n;
+      const add = y+r+1, del = y-r;
+      if(add < H){ acc += tmp[add*W+x]; n++; }
+      if(del >= 0){ acc -= tmp[del*W+x]; n--; }
+    }
+  }
+  return out;
 }
 
 /* 暗い画面（CDU の表示面）がどこにあるかを、行と列の「暗さの割合」から決める。
@@ -1745,35 +1797,71 @@ function cduScreenBox(g, w, h){
   let x0 = Math.max(0, (cols[0]-pad)*sx), x1 = Math.min(w, (cols[1]+1+pad)*sx);
   let y0 = Math.max(0, (rows[0]-pad)*sy), y1 = Math.min(h, (rows[1]+1+pad)*sy);
   const bw = x1-x0, bh = y1-y0;
-  const area = (bw*bh)/(w*h);
-  if(bw < 120 || bh < 80 || area < 0.06 || area > 0.92) return all;   /* 怪しければ切らない */
+  const area = (bw*bh)/(w*h), aspect = bw/bh;
+  /* 怪しければ切らない。CDU の画面はおおむね横長の四角なので、
+     細長い帯や小さすぎる箱になった時は写真全体を使う（切りすぎて文字を捨てない）。 */
+  if(bw < 120 || bh < 80 || area < 0.06 || area > 0.92) return all;
+  if(aspect < 0.7 || aspect > 2.2) return all;
   return {x:x0, y:y0, w:bw, h:bh};
 }
 
 async function cduShoot(video){
-  const shot = cduPrep(video);
+  const src = document.createElement('canvas');
+  src.width = video.videoWidth; src.height = video.videoHeight;
+  src.getContext('2d').drawImage(video, 0, 0);
+  src.videoWidth = src.width; src.videoHeight = src.height;
   cduStop();
-  await cduRead(shot);
+  await cduRead(src);
 }
 
-/* 前処理済みの絵を読み、確認画面へ */
+const cduCount = r => ['pos','ata','alt','temp','wind'].filter(k => r && r[k]).length;
+/* 足りない欄だけ、2 回目の読みで埋める */
+function cduMerge(a, b){
+  const out = Object.assign({}, a);
+  out.fixed = Object.assign({}, a.fixed); out.seen = Object.assign({}, a.seen);
+  for(const k of ['pos','ata','alt','temp','wind']){
+    if(out[k] || !b[k]) continue;
+    out[k] = b[k];
+    if(b.fixed && b.fixed[k]) out.fixed[k] = b.fixed[k];
+    delete out.seen[k];
+  }
+  return out;
+}
+
+/* 撮った絵を読み、確認画面へ。
+   1 回目でうまく読めない時は、切り出しと白黒の付け方を変えてもう一度だけ読む。 */
 async function cduRead(source){
-  const shot = (source instanceof HTMLCanvasElement && source.videoWidth) ? cduPrep(source) : source;
   $('#cduBody').innerHTML = '<div class="hoff-step" id="cduStep">読み取っています…</div>';
-  $('#cduBody').appendChild(shot); shot.id = 'cduShot';
   cduSay('文字を読んでいます。数秒かかります。');
-  let text = '';
+  let shot, r, text = '';
   try{
+    shot = cduPrep(source);
+    $('#cduBody').appendChild(shot); shot.id = 'cduShot';
     text = await cduOcr(shot);
+    r = parseCdu(text);
+    if(cduCount(r) < 5){
+      /* 1 回目が画面の切り出しなら 2 回目は写真全体、それでも駄目なら白黒の向きを逆に */
+      let n = 1;
+      for(const opt of [{whole:true}, {flip:true}]){
+        $('#cduStep').textContent = 'もう一度読み直しています… ' + (++n) + '/3';
+        const alt = cduPrep(source, opt);
+        const t2  = await cduOcr(alt);
+        const r2  = parseCdu(t2);
+        if(cduCount(r2) > cduCount(r)){ shot.replaceWith(alt); alt.id = 'cduShot'; shot = alt; }
+        r = cduMerge(r, r2);
+        text += '\n---- ' + JSON.stringify(opt) + '\n' + t2;
+        if(cduCount(r) >= 5) break;
+      }
+    }
   }catch(err){
     console.error(err);
     $('#cduStep').textContent = '読み取れませんでした';
     cduSay('文字認識を動かせませんでした（' + (err && err.message || 'エラー') + '）。<br>' +
            '<button class="btn" id="cduRetry" style="margin-top:8px">もう一度撮る</button>');
-    const r = $('#cduRetry'); if(r) r.onclick = cduCamera;
+    const r2 = $('#cduRetry'); if(r2) r2.onclick = cduCamera;
     return;
   }
-  cduReview(parseCdu(text), text);
+  cduReview(r, text, shot);
 }
 
 /* Tesseract を読み込んで 1 枚だけ読む。
@@ -1890,7 +1978,7 @@ function ocrWorkerBlob(map){
 }
 
 /* 読み取り結果を見せてから反映する */
-function cduReview(r, raw){
+function cduReview(r, raw, shot){
   const idx = matchWpt(r.pos);
   const w   = idx >= 0 ? STATE.wps[idx] : null;
   const fixed = r.fixed || {}, seen = r.seen || {};
@@ -1920,6 +2008,8 @@ function cduReview(r, raw){
       '<button class="btn" id="cduAgain">もう一度撮る</button>' +
       '<button class="btn" id="cduAgainPick">写真から読み込む</button>' +
     '</div>';
+  /* 何を見て読んだのかが分かるように、白黒にした絵を小さく残す */
+  if(shot){ shot.classList.add('thumb'); $('#cduBody').appendChild(shot); }
   cduSay(w ? '内容を確かめてから反映してください。'
            : '読み取った POS「' + esc(r.pos || '—') + '」がプランにありません。撮り直すか、手で入れてください。');
   const again = $('#cduAgain'); if(again) again.onclick = cduCamera;
