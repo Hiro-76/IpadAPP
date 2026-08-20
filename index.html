@@ -175,7 +175,9 @@ html[data-theme="day"] .btn.now-to{color:#fff}
 #cduBody{display:flex;flex-direction:column;align-items:center;gap:10px}
 #cduMsg{font-size:12px;line-height:1.7;color:var(--plan);margin:10px 0 0;text-align:center}
 #cduOcr{font-size:12px;line-height:1.7;color:var(--plan);margin:6px 0 0;text-align:center}
-#cduVideo,#cduShot{width:min(560px,62vh,100%);height:auto;border-radius:8px;background:#000}
+/* 縦向きのカメラだと縦長になってボタンが画面の外へ出てしまうので、高さを必ず抑える */
+#cduVideo,#cduShot{width:min(560px,100%);height:auto;max-height:42vh;object-fit:contain;
+  border-radius:8px;background:#000}
 .cdu-grid{display:grid;grid-template-columns:auto auto auto;gap:8px 16px;align-items:center;
   justify-content:center;width:min(560px,100%);font-size:14px}
 .cdu-grid .k{font-size:11px;letter-spacing:.12em;color:var(--plan)}
@@ -439,6 +441,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
   </div>
   <input type="file" id="file" accept="application/pdf,.pdf,.txt" hidden>
   <input type="file" id="fileJson" accept="application/json,.json" hidden>
+  <input type="file" id="cduFile" accept="image/*" hidden>
 </section>
 
 <div class="legend" id="legend">
@@ -1492,12 +1495,18 @@ async function cduOpen(){
 }
 async function cduCamera(){
   cduStop();
+  /* ボタンは映像より上に置く。映像が縦長でも必ず押せる位置に残す。 */
   $('#cduBody').innerHTML =
     '<div class="hoff-step" id="cduStep">カメラを起動しています…</div>' +
-    '<video id="cduVideo" playsinline muted></video>' +
-    '<div class="cdu-row"><button class="btn big" id="cduShoot">撮影して読み取る</button></div>';
+    '<div class="cdu-row">' +
+      '<button class="btn big" id="cduShoot">撮影して読み取る</button>' +
+      '<button class="btn big" id="cduPick">写真から読み込む</button>' +
+    '</div>' +
+    '<video id="cduVideo" playsinline muted></video>';
   cduSay('CDU の <b>POS REPORT</b> の画面いっぱいにカメラを向けて撮影してください。');
   const video = $('#cduVideo');
+  $('#cduPick').onclick  = ()=> $('#cduFile').click();
+  $('#cduShoot').onclick = ()=> cduShoot(video);
   try{
     cduStream = await navigator.mediaDevices.getUserMedia({
       video:{facingMode:'environment', width:{ideal:1920}, height:{ideal:1080}}, audio:false});
@@ -1506,11 +1515,45 @@ async function cduCamera(){
     $('#cduStep').textContent = '画面が大きく写るように近づけてください';
   }catch(err){
     $('#cduStep').textContent = 'カメラを使えません';
+    $('#cduShoot').disabled = true;
     cduSay('カメラを使えませんでした（' + (err && err.name || 'エラー') + '）。<br>' +
-           '設定でカメラを許可してください。');
+           '設定でカメラを許可するか、<b>写真から読み込む</b>を使ってください。');
     return;
   }
-  $('#cduShoot').onclick = ()=> cduShoot(video);
+}
+
+/* 撮影済みの写真（カメラロールやファイル）から読む */
+async function cduFromFile(file){
+  if(!file) return;
+  cduStop();
+  $('#cduBody').innerHTML = '<div class="hoff-step" id="cduStep">写真を開いています…</div>';
+  cduSay('');
+  let img;
+  try{
+    img = await loadPicture(file);
+  }catch(err){
+    $('#cduStep').textContent = '写真を開けませんでした';
+    cduSay('<button class="btn" id="cduRetry" style="margin-top:8px">カメラに戻る</button>');
+    const r = $('#cduRetry'); if(r) r.onclick = cduCamera;
+    return;
+  }
+  const src = document.createElement('canvas');
+  src.width = img.width; src.height = img.height;
+  src.getContext('2d').drawImage(img, 0, 0);
+  src.videoWidth = img.width; src.videoHeight = img.height;   /* cduPrep は video と同じ形で受ける */
+  await cduRead(src);
+}
+async function loadPicture(file){
+  if(window.createImageBitmap){
+    try{ return await createImageBitmap(file, {imageOrientation:'from-image'}); }catch(e){}
+  }
+  return await new Promise((res, rej)=>{
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload  = ()=>{ URL.revokeObjectURL(url); res(im); };
+    im.onerror = ()=>{ URL.revokeObjectURL(url); rej(new Error('開けません')); };
+    im.src = url;
+  });
 }
 
 /* 文字認識の部品の状態を出し、足りなければ（電波があれば）その場で取り込む。
@@ -1539,15 +1582,26 @@ async function ocrPrepUI(){
   }
 }
 
-/* 撮った絵を読みやすくする: 灰色化 → コントラストを立てる */
+/* 撮った絵を読みやすくする。
+   CDU を写した写真は「明るい操作パネルの中に、暗い画面がひとつ」という形になる。
+   画面の外まで含めて一度に白黒にすると、画面の中の白い文字が背景と同じ側に入って
+   消えてしまうので、先に暗い画面の部分だけを切り出してから白黒にする。 */
 function cduPrep(video){
   const w = video.videoWidth, h = video.videoHeight;
+  const tmp = document.createElement('canvas');
+  tmp.width = w; tmp.height = h;
+  const tg = tmp.getContext('2d', {willReadFrequently:true});
+  tg.drawImage(video, 0, 0, w, h);
+  const box = cduScreenBox(tg, w, h);
+
   /* 長辺 1600px を狙う。小さい絵は 2 倍まで引き伸ばす（細い文字が読めるようになる） */
-  const scale = Math.min(2, 1600 / Math.max(w, h));
+  const scale = Math.min(2, 1600 / Math.max(box.w, box.h));
   const cv = document.createElement('canvas');
-  cv.width = Math.round(w * scale); cv.height = Math.round(h * scale);
+  cv.width  = Math.max(1, Math.round(box.w * scale));
+  cv.height = Math.max(1, Math.round(box.h * scale));
   const g = cv.getContext('2d', {willReadFrequently:true});
-  g.drawImage(video, 0, 0, cv.width, cv.height);
+  g.drawImage(tmp, box.x, box.y, box.w, box.h, 0, 0, cv.width, cv.height);
+
   const img = g.getImageData(0, 0, cv.width, cv.height), d = img.data;
   let sum = 0;
   for(let k=0;k<d.length;k+=4){
@@ -1555,7 +1609,7 @@ function cduPrep(video){
     d[k] = d[k+1] = d[k+2] = v; sum += v;
   }
   const mean = sum / (d.length/4);
-  /* 文字は画面の少数派。明るい側が少なければ「黒地に白文字」（＝CDU）なので反転し、
+  /* 文字は少数派。明るい側が少なければ「黒地に白文字」（＝CDU）なので反転し、
      暗い側が少なければ紙や明るい画面なのでそのまま。どちらでも白地に黒文字にする。 */
   let bright = 0;
   for(let k=0;k<d.length;k+=4) if(d[k] > mean) bright++;
@@ -1569,9 +1623,72 @@ function cduPrep(video){
   return cv;
 }
 
+/* 暗い画面（CDU の表示面）がどこにあるかを、行と列の「暗さの割合」から決める。
+   見つからない・大きすぎる・小さすぎる時は写真全体を返す。 */
+function cduScreenBox(g, w, h){
+  const all = {x:0, y:0, w:w, h:h};
+  const N = 200;                                   /* 小さく間引いて見る */
+  const sx = Math.max(1, Math.floor(w/N)), sy = Math.max(1, Math.floor(h/N));
+  const cw = Math.floor(w/sx), ch = Math.floor(h/sy);
+  if(cw < 8 || ch < 8) return all;
+  const px = g.getImageData(0, 0, w, h).data;
+  const gray = new Float32Array(cw*ch);
+  let sum = 0;
+  for(let y=0;y<ch;y++) for(let x=0;x<cw;x++){
+    const k = ((y*sy)*w + x*sx)*4;
+    const v = px[k]*0.299 + px[k+1]*0.587 + px[k+2]*0.114;
+    gray[y*cw+x] = v; sum += v;
+  }
+  const mean = sum/(cw*ch);
+  const dark = new Uint8Array(cw*ch);
+  for(let i=0;i<gray.length;i++) dark[i] = gray[i] < mean*0.75 ? 1 : 0;
+
+  /* 暗い点の割合が高い所の、一番長い連続区間。
+     文字（明るい）で割合が落ちるので、しきい値は一番高い所からの相対で決め、
+     少しの途切れは同じ区間としてつなぐ。 */
+  const run = (n, ratio) => {
+    const prof = new Float32Array(n);
+    let max = 0;
+    for(let i=0;i<n;i++){ prof[i] = ratio(i); if(prof[i] > max) max = prof[i]; }
+    if(max < 0.25) return null;
+    const th = Math.max(0.25, max*0.5), gapMax = Math.max(2, Math.round(n*0.03));
+    let best=[0,-1], s=-1, gap=0;
+    for(let i=0;i<n;i++){
+      if(prof[i] >= th){ if(s<0) s=i; gap=0; }
+      else if(s>=0){
+        if(++gap > gapMax){
+          const e = i-gap;
+          if((e-s) > (best[1]-best[0])) best=[s,e];
+          s=-1; gap=0;
+        }
+      }
+    }
+    if(s>=0){ const e = n-1-gap; if((e-s) > (best[1]-best[0])) best=[s,e]; }
+    return best[1] >= best[0] ? best : null;
+  };
+  const rows = run(ch, y => { let c=0; for(let x=0;x<cw;x++) c+=dark[y*cw+x]; return c/cw; });
+  if(!rows) return all;
+  const cols = run(cw, x => { let c=0; for(let y=rows[0];y<=rows[1];y++) c+=dark[y*cw+x]; return c/(rows[1]-rows[0]+1); });
+  if(!cols) return all;
+
+  const pad = 4;
+  let x0 = Math.max(0, (cols[0]-pad)*sx), x1 = Math.min(w, (cols[1]+1+pad)*sx);
+  let y0 = Math.max(0, (rows[0]-pad)*sy), y1 = Math.min(h, (rows[1]+1+pad)*sy);
+  const bw = x1-x0, bh = y1-y0;
+  const area = (bw*bh)/(w*h);
+  if(bw < 120 || bh < 80 || area < 0.06 || area > 0.92) return all;   /* 怪しければ切らない */
+  return {x:x0, y:y0, w:bw, h:bh};
+}
+
 async function cduShoot(video){
   const shot = cduPrep(video);
   cduStop();
+  await cduRead(shot);
+}
+
+/* 前処理済みの絵を読み、確認画面へ */
+async function cduRead(source){
+  const shot = (source instanceof HTMLCanvasElement && source.videoWidth) ? cduPrep(source) : source;
   $('#cduBody').innerHTML = '<div class="hoff-step" id="cduStep">読み取っています…</div>';
   $('#cduBody').appendChild(shot); shot.id = 'cduShot';
   cduSay('文字を読んでいます。数秒かかります。');
@@ -1716,16 +1833,18 @@ function cduReview(r, raw){
       row('POS',  r.pos,  w ? ('→ ' + w.name) : '') +
       row('ATA',  r.ata,  '→ ATO') +
       row('ALT',  r.alt ? ('FL' + r.alt) : null, '→ ALT') +
-      row('TEMP', r.temp ? (r.temp + '°C') : null, '→ SAT') +
+      row('TEMP', r.temp ? (fmtSat(r.temp) + '°C') : null, '→ SAT') +
       row('WIND', r.wind ? (r.wind + 'KT') : null, '→ SPOT WND') +
     '</div>' +
     '<div class="cdu-row">' +
       (w ? '<button class="btn big" id="cduApply">反映する</button>' : '') +
       '<button class="btn" id="cduAgain">もう一度撮る</button>' +
+      '<button class="btn" id="cduAgainPick">写真から読み込む</button>' +
     '</div>';
   cduSay(w ? '内容を確かめてから反映してください。'
            : '読み取った POS「' + esc(r.pos || '—') + '」がプランにありません。撮り直すか、手で入れてください。');
   const again = $('#cduAgain'); if(again) again.onclick = cduCamera;
+  const pick  = $('#cduAgainPick'); if(pick) pick.onclick = ()=> $('#cduFile').click();
   const ap = $('#cduApply');
   if(ap) ap.onclick = ()=> cduApply(idx, r);
   console.log('[cdu] OCR text:\n' + raw);
@@ -1965,6 +2084,11 @@ $('#btnSave').onclick = ()=> STATE.wps.length && download(stamp()+'.json',
   JSON.stringify(buildHandoff(), null, 1), 'application/json');
 $('#btnCdu').onclick   = cduOpen;
 $('#cduClose').onclick = cduClose;
+$('#cduFile').addEventListener('change', e=>{
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';                 /* 同じ写真をもう一度選べるように */
+  if(f) cduFromFile(f);
+});
 $('#cdu').addEventListener('click', e=>{ if(e.target.id === 'cdu') cduClose(); });
 $('#btnHandoff').onclick = hoffOpen;
 $('#hoffClose').onclick  = hoffClose;
