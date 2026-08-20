@@ -1550,7 +1550,8 @@ function parseCdu(text){
   if(m){
     const dir = zeroFix(m[1], okDir);               /* 924 → 024 */
     if(dir && dir !== m[1]) out.fixed.wind = m[1] + '/' + m[2];
-    if(dir && +m[2] <= 250) out.wind = dir.padStart(3,'0') + '/' + m[2];
+    /* 風速はスポットでも 200KT を超えない。桁が増えた読みは値としない */
+    if(dir && +m[2] <= 200) out.wind = dir.padStart(3,'0') + '/' + m[2];
     if(!out.wind) out.seen.wind = m[1] + '/' + m[2];
   }
 
@@ -1798,7 +1799,18 @@ function cduPrep(video, opt){
   cv.width  = Math.max(1, Math.round(box.w * scale));
   cv.height = Math.max(1, Math.round(box.h * scale));
   const g = cv.getContext('2d', {willReadFrequently:true});
-  g.drawImage(tmp, box.x, box.y, box.w, box.h, 0, 0, cv.width, cv.height);
+  if(opt && opt.deg){
+    /* 傾きを戻しながら切り出す（帯の真ん中を軸に回す） */
+    g.save();
+    g.translate(cv.width/2, cv.height/2);
+    g.rotate(-opt.deg * Math.PI / 180);
+    g.scale(scale, scale);
+    g.translate(-(box.x + box.w/2), -(box.y + box.h/2));
+    g.drawImage(tmp, 0, 0);
+    g.restore();
+  }else{
+    g.drawImage(tmp, box.x, box.y, box.w, box.h, 0, 0, cv.width, cv.height);
+  }
 
   const W = cv.width, H = cv.height;
   const img = g.getImageData(0, 0, W, H), d = img.data;
@@ -1819,7 +1831,12 @@ function cduPrep(video, opt){
   /* しきい値は周りの明るさから決める（ベゼルの映り込みや画面のムラに強い）。
      一枚の平均だけで切ると、明るい枠が写り込んだ時に文字が背景側に沈む。 */
   const fine = !!(opt && opt.fine);              /* 薄い文字を拾う設定でもう一度読む用 */
-  const bg  = boxMean(gray, W, H, Math.max(8, Math.round(Math.min(W,H)/(fine ? 12 : 22))));
+  /* 窓の大きさは文字の大きさから決める。1 行だけを細長く切り出した時に
+     画像の短辺から決めると窓が小さくなりすぎ、太い文字の内側が抜ける。 */
+  const th  = box.textH ? box.textH * scale : 0;
+  const rad = th ? Math.max(8, Math.min(48, Math.round(th * 1.3)))
+                 : Math.max(8, Math.round(Math.min(W,H)/(fine ? 12 : 22)));
+  const bg  = boxMean(gray, W, H, rad);
   const C   = fine ? 5 : 10;
   const on  = new Uint8Array(W*H);
   for(let i=0;i<gray.length;i++){
@@ -1835,6 +1852,12 @@ function cduPrep(video, opt){
       if(dx||dy) n += on[i + dy*W + dx];
     }
     if(n < 2) keep[i] = 0;
+  }
+  /* 1 か所だけを大きく切り出した時は、点のかたまりごと落とす。
+     写真の埃や画面のムラは小さなかたまりになるので、文字より小さい物は消す。 */
+  if(opt && opt.clean){
+    const th = box.textH ? box.textH * scale : Math.min(W, H) / 8;
+    cduSpecks(keep, W, H, Math.max(3, Math.round(th*th*0.006)));
   }
   for(let i=0,k=0;i<keep.length;i++,k+=4){
     const v = keep[i] ? 0 : 255;
@@ -1873,11 +1896,119 @@ function cduWordBox(words, prep){
   };
 }
 
-/* POS FUEL の値は CDU 画面の右下、「POS FUEL」と書かれたすぐ下にある。
-   文字として拾えなかった時のために、語の位置から値のある場所だけを切り出す。
-   FUEL の字が読めていれば その真下、読めていなければ文字の載っている範囲の右下。 */
-function cduFuelBox(words, prep){
-  if(!prep || !prep.srcBox || !words || !words.length) return null;
+/* CDU の POS REPORT は「見出しの 1 行下に値」という並びが決まっている。
+
+     POS            ATA    ALT
+     CARTO         0416z  FL340
+     ...
+     TEMP     WIND
+     -43°c  324°/ 28KT
+              POS FUEL
+                 85.8
+
+   写真全体を文章として読むと、隣の値とつながったり桁が落ちたりする。
+   そこで読めなかった項目は、見出しの字の位置から値の場所を割り出し、
+   そこだけを「読む字を絞って」読み直す。切り出す幅は見出しからの文字数で決める。 */
+/* 1 項目ずつの取り出し方。切り出した 1 行を読んだ文字列から拾う */
+const CDU_TAKE = {
+  pos: t => {
+    const L = /^(POS|ATA|ALT|EST|ETA|NEXT|TEMP|WIND|REPORT|FUEL|KT|Z|SAT|ANA|JAL)$/;
+    /* 切り出した帯に見出しの行が混ざることがある。
+       地点名は「時刻や FL と同じ行」にあるので、その行を先に見る。 */
+    const lines = String(t).toUpperCase().split(/\r?\n/);
+    const val = lines.find(l => /F\s*L\s*[\dOQDPGU]{3}|[\dOQDPGU]{4}\s*Z/.test(l));
+    const u = (val || lines.join(' '))
+                .replace(/F\s*L\s*[\dOQDPGU]{2,3}/g, ' ')     /* FL340 は地点名ではない */
+                .replace(/[\dOQDPGU]{4}\s*Z/g, ' ');           /* 0416z も */
+    const hit = (u.match(/\b[A-Z][A-Z0-9]{2,6}\b/g) || []).filter(n => !L.test(n) && !/^\d+$/.test(n));
+    /* 切り出した帯には画面の切れ端も混ざる。プランに在る名前を最優先で採り、
+       無ければ地点名らしい形（英字 4 文字以上）だけを採る。
+       POS は入れ先を決めるのではなく「合っているか」を見せるだけなので、
+       怪しい物を出すより空にする方がよい。 */
+    return hit.find(n => matchWpt(n) >= 0) || hit.find(n => /^[A-Z]{4,7}$/.test(n)) || null;
+  },
+  ata: t => {
+    const u = unzero(String(t).toUpperCase());
+    const m = /(\d{4})\s*Z/.exec(u) || /\b(\d{4})\b/.exec(u);
+    return m ? (okClock(m[1]) ? m[1] : zeroFix(m[1], okClock)) : null;
+  },
+  alt: t => {
+    const u = unzero(String(t).toUpperCase());
+    const fl  = /F\s*L?\s*(\d{3})/.exec(u);
+    const all = (u.match(/\d{3}/g) || []);
+    let a = fl ? fl[1] : (all.length ? all[all.length-1] : null);
+    if(!a) return null;
+    if(+a % 10 !== 0 && /[89]$/.test(a)) a = a.slice(0,2) + '0';    /* FL348 → FL340 */
+    return (+a >= 10 && +a <= 500 && +a % 10 === 0) ? a : null;
+  },
+  temp: t => {
+    /* 温度は「°C の付いた行」か「風と同じ行」の先頭の数字 */
+    const lines = String(t).toUpperCase().split(/\r?\n/);
+    const val = lines.find(l => /[-+M]?\s?\d{1,3}\s{0,2}°?\s{0,2}C/.test(l))
+             || lines.find(l => /\d{2,3}\s*°?\s*\/\s*\d{1,3}/.test(l));
+    const m = val ? /([-+M]?)\s*(\d{1,3})/.exec(val) : null;
+    if(!m) return null;
+    return +m[2] <= 99 ? ((m[1] === '+' ? '+' : m[1] ? '-' : '') + m[2]) : null;
+  },
+  wind: t => {
+    const m = /(\d{2,3})\s*°?[-.\s]*\/[-.\s]*(\d{1,3})/.exec(String(t));
+    if(!m) return null;
+    const dir = zeroFix(m[1], okDir);
+    /* 風速はスポットでも 200KT を超えない。桁が増えた読みは採らない */
+    return (dir && +m[2] <= 200) ? (dir.padStart(3,'0') + '/' + m[2]) : null;
+  },
+  fuel: (t, byLab) => cduFuelText(t, !byLab),
+};
+
+/* CDU の POS REPORT は「見出しの 1 行下に値」という並びが決まっている。
+
+     POS            ATA    ALT
+     CARTO         0416z  FL340
+     ...
+     TEMP     WIND
+     -43°c  324°/ 28KT
+              POS FUEL
+                 85.8
+
+   写真全体を一度に読むと、離れた行がつながったり桁が落ちたりする。
+   そこで読めなかった項目は、見出しの字の位置から**値の 1 行**を切り出し、
+   その帯だけを大きく引き伸ばして読み直す。1 行なら文字認識も迷いにくい。
+   見出しが読めていない時は、値そのものの形（`FL340` `28KT`）を手がかりにする。 */
+const CDU_LINES = [
+  {keys:['pos','ata','alt'], lab:/^P[O0Q]S$/, not:/REPO|FUEL|EPORT/, same:/^F[L1I]\d{2,3}$/, wide:true},
+  {keys:['temp','wind'],     lab:/^T[EF8][MH]P$/, same:/\d?KT$|^[-+M]?\d{1,3}.?C$/, wide:true},
+  /* FUEL は右下にぽつんと 1 つ。数字だけに絞って読む */
+  {keys:['fuel'], lab:/^[FP]?[UO]E[L1I]$/, last:true, corner:true, left:4.0, right:7.0, hgt:2.7, chars:'0123456789. '},
+];
+
+/* 写真の傾き（度）。同じ行で隣り合う語の中心を結んだ角度の中央値を採る。
+   CDU を手持ちで撮ると必ず少し傾く。行を横長に切り出す時、傾いたままだと
+   帯の端で行が外れてしまうので、切り出す時に真っ直ぐに戻す。 */
+function cduSkew(words){
+  if(!words || words.length < 4) return 0;
+  const hh = words.filter(v => v.text.length >= 2).map(v => v.bbox.y1 - v.bbox.y0).sort((a,c)=>a-c);
+  const h  = hh.length ? hh[hh.length>>1] : 0;
+  if(!h) return 0;
+  const sl = [];
+  for(let i=0;i<words.length;i++){
+    const a = words[i].bbox, ax = (a.x0+a.x1)/2, ay = (a.y0+a.y1)/2;
+    for(let j=0;j<words.length;j++){
+      if(i === j) continue;
+      const b = words[j].bbox, dx = (b.x0+b.x1)/2 - ax, dy = (b.y0+b.y1)/2 - ay;
+      if(dx <= h*0.8 || dx > h*8) continue;      /* 隣り合う語だけ */
+      if(Math.abs(dy) > h*0.45) continue;        /* 同じ行だけ */
+      sl.push(dy/dx);
+    }
+  }
+  if(sl.length < 3) return 0;
+  sl.sort((a,c)=>a-c);
+  const deg = Math.atan(sl[sl.length>>1]) * 180 / Math.PI;
+  return Math.abs(deg) > 8 ? 0 : deg;            /* 大きすぎる値は当てにしない */
+}
+
+/* 見出しの字の位置から、値の載っている場所を出す（元の写真の座標） */
+function cduSpotBox(words, prep, spec){
+  if(!prep || !prep.srcBox || !words || !words.length || !spec) return null;
   const s = prep.srcScale, b = prep.srcBox;
   const clip = (x, y, w, h) => {
     const x0 = Math.max(b.x, x), y0 = Math.max(b.y, y);
@@ -1888,19 +2019,58 @@ function cduFuelBox(words, prep){
   const hh = words.filter(v => v.text.length >= 2).map(v => (v.bbox.y1 - v.bbox.y0) / s).sort((a,c)=>a-c);
   const hm = hh.length ? hh[hh.length>>1] : 0;
 
-  /* FUEL は F が落ちたり L が 1 に化けたりする */
-  const labs = words.filter(v => /^[FP]?[UO]E[L1I]$/.test(v.text) || v.text === 'FUEL');
+  let labs = words.filter(v => spec.lab.test(v.text));
+  /* 同じ字が別の意味で並ぶ場合を外す（「ANA109 POS REPORT」「POS FUEL」の POS） */
+  if(spec.not) labs = labs.filter(v => !words.some(o =>
+    o !== v && spec.not.test(o.text) &&
+    o.bbox.x0 > v.bbox.x0 && o.bbox.x0 - v.bbox.x1 < (v.bbox.y1 - v.bbox.y0) * 4 &&
+    Math.abs((o.bbox.y0 + o.bbox.y1) - (v.bbox.y0 + v.bbox.y1)) < (v.bbox.y1 - v.bbox.y0)));
+  /* 文字の載っている範囲（横幅）。行をまるごと切り出す時に使う */
+  let bx0 = Infinity, bx1 = -Infinity;
+  words.forEach(v => { bx0 = Math.min(bx0, v.bbox.x0); bx1 = Math.max(bx1, v.bbox.x1); });
+
   if(labs.length && hm > 0){
-    /* 同じ画面に FUEL が複数あれば一番下（POS FUEL は画面の最下段） */
-    const lab = labs.reduce((a, v) => (v.bbox.y1 > a.bbox.y1 ? v : a), labs[0]);
-    const x = b.x + lab.bbox.x0 / s, y = b.y + lab.bbox.y0 / s;
-    const w = (lab.bbox.x1 - lab.bbox.x0) / s;
-    /* 値は FUEL の 1 行下（間に空行が入ることもある）。
-       字の左右にずれて出るので、横は広めに取る。 */
-    const box = clip(x - hm*4, y + hm*0.75, w + hm*7, hm*2.7);
+    /* 既定は一番上の見出し。FUEL だけは一番下（画面の最下段にある） */
+    const lab = labs.reduce((a, v) => ((spec.last ? v.bbox.y1 > a.bbox.y1 : v.bbox.y0 < a.bbox.y0) ? v : a), labs[0]);
+    const y = b.y + lab.bbox.y0 / s;
+    /* 行ごと（wide）なら左右は文字のある範囲いっぱい。
+       1 語だけ（FUEL）なら見出しから左右に文字数ぶん */
+    const x = spec.wide ? b.x + bx0/s - hm*0.6 : b.x + lab.bbox.x0/s - hm*spec.left;
+    const w = spec.wide ? (bx1-bx0)/s + hm*1.2
+                        : (lab.bbox.x1 - lab.bbox.x0)/s + hm*(spec.left + spec.right);
+    let box = clip(x, y + hm*0.75, w, hm*(spec.hgt || 1.9));
+    /* 帯の中に語があれば、その語の高さぴったりに詰める（下の行を巻き込まない） */
+    if(box && spec.wide){
+      const y1 = (box.y + box.h - b.y) * s;
+      /* 見出しより下にある語だけを見る（見出しの語の箱は縦に長く、帯に掛かる） */
+      const inside = words.filter(v => v.bbox.y0 > lab.bbox.y1 - hm*s*0.25 &&
+                                       (v.bbox.y0 + v.bbox.y1)/2 < y1);
+      if(inside.length){
+        const top = Math.min.apply(null, inside.map(v => v.bbox.y0));
+        const bot = Math.max.apply(null, inside.filter(v => v.bbox.y0 < top + hm*s*0.8).map(v => v.bbox.y1));
+        box = clip(x, b.y + top/s - hm*0.35, w, (bot-top)/s + hm*0.7) || box;
+      }
+    }
     if(box){ box.textH = hm; box.byLabel = true; return box; }
   }
-  /* FUEL の字が読めていない場合: 文字のある範囲の右下 1/3 */
+  /* 見出しが読めていない時は、値そのものの形（`28KT` `43C` など）を手がかりに
+     その 1 行をまるごと切り出す。TEMP と WIND は同じ行に並ぶので、
+     どちらの手がかりからでも同じ帯が取れる（拾い分けは読んだ後の形で決める）。 */
+  if(spec.same && hm > 0){
+    const hits = words.filter(v => spec.same.test(v.text));
+    if(hits.length){
+      const a  = hits[hits.length-1];
+      const cy = (a.bbox.y0 + a.bbox.y1) / 2;
+      const line = words.filter(v => Math.abs((v.bbox.y0 + v.bbox.y1)/2 - cy) < (a.bbox.y1 - a.bbox.y0) * 0.6);
+      let x0 = a.bbox.x0, x1 = a.bbox.x1;
+      line.forEach(v => { x0 = Math.min(x0, v.bbox.x0); x1 = Math.max(x1, v.bbox.x1); });
+      const box = clip(b.x + x0/s - hm*0.6, b.y + a.bbox.y0/s - hm*0.5,
+                       (x1-x0)/s + hm*1.2, (a.bbox.y1 - a.bbox.y0)/s + hm);
+      if(box){ box.textH = hm; box.byLabel = true; return box; }
+    }
+  }
+  if(!spec.corner) return null;
+  /* 見出しの字が読めていない場合: 文字のある範囲の右下 1/3（FUEL 用） */
   const use = words.filter(v => v.confidence >= 50 && /[A-Z0-9]/.test(v.text));
   if(use.length < 3) return null;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, hs = [];
@@ -1915,6 +2085,28 @@ function cduFuelBox(words, prep){
   const box = clip(b.x + x0/s + bw*0.40, b.y + y0/s + bh*0.58, bw*0.60 + h, bh*0.42 + h*1.5);
   if(box){ box.textH = h; box.byLabel = false; }
   return box;
+}
+
+/* 小さい点のかたまり（埃・画面のムラ）を消す。文字は必ずこれより大きい。
+   ひとかたまりずつ数えて、min 画素に満たない物を落とす。 */
+function cduSpecks(on, W, H, min){
+  const seen = new Uint8Array(W*H);
+  for(let i=0;i<on.length;i++){
+    if(!on[i] || seen[i]) continue;
+    const cell = [i];
+    seen[i] = 1;
+    for(let q=0;q<cell.length;q++){
+      const k = cell[q], x = k % W, y = (k - x) / W;
+      for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+        const nx = x+dx, ny = y+dy;
+        if(nx<0||ny<0||nx>=W||ny>=H) continue;
+        const j = ny*W + nx;
+        if(!on[j] || seen[j]) continue;
+        seen[j] = 1; cell.push(j);
+      }
+    }
+    if(cell.length < min) for(const k of cell) on[k] = 0;
+  }
 }
 
 /* 半径 r の四角い窓の平均（横→縦の 2 回で済ませる） */
@@ -1982,6 +2174,35 @@ function cduBlank(g, w, h){
 }
 
 const CDU_KEYS = ['pos','ata','alt','temp','wind','fuel'];
+
+/* 読んだ値がプラン（入れ先の WPT）と大きく食い違っていないか。
+   食い違う物は確認画面で断り、読み直しの対象にもする。 */
+function cduOdd(r, w){
+  const odd = {};
+  if(!r || !w) return odd;
+  const pAlt = /^\d{4,5}$/.test(w.alt||'') ? +w.alt/100 : null;
+  if(pAlt != null && r.alt && Math.abs(+r.alt - pAlt) > 40)
+    odd.alt = 'プランは FL' + String(Math.round(pAlt)).padStart(3,'0');
+  const pTmp = /^-?\d{1,2}$/.test(w.tmp||'') ? +w.tmp : null;
+  if(pTmp != null && r.temp && Math.abs(+fmtSat(r.temp) - pTmp) > 15)
+    odd.temp = 'プランは ' + w.tmp + '°C';
+  if(/^\d{1,3}\.\d$/.test(w.fuel||'') && r.fuel && Math.abs(+r.fuel - +w.fuel) > Math.max(20, +w.fuel*0.25))
+    odd.fuel = 'プランは ' + w.fuel;
+  /* 風はスポットとプランで違って当たり前だが、桁が増えた読みは分かる */
+  const pw = /(\d{2,3})\D+(\d{1,3})/.exec(w.wind||'');
+  const rw = r.wind ? /(\d{2,3})\/(\d{1,3})/.exec(r.wind) : null;
+  if(pw && rw){
+    const dd = Math.abs(((+rw[1] - +pw[1]) % 360 + 540) % 360 - 180);
+    if(Math.abs(+rw[2] - +pw[2]) > Math.max(50, +pw[2]) || dd > 90)
+      odd.wind = 'プランは ' + fmtWind(pw[1] + '/' + pw[2]);
+  }
+  return odd;
+}
+/* 入れ先に選ばれている WPT で見る */
+function cduDoubt(r){
+  const i = cduWptIdx();
+  return cduOdd(r, i >= 0 ? STATE.wps[i] : null);
+}
 const cduCount = r => CDU_KEYS.filter(k => r && r[k]).length;
 /* 1 回目で読めた値を最優先。読めなかった欄は、
    2 回目以降の読みが「2 回そろって同じ」時だけ採る（1 回きりの読み違いを入れない）。 */
@@ -2064,7 +2285,8 @@ async function cduRead(source){
       const box = cduWordBox(first.res.words, first.cv);
       /* 文字の高さが 36px 前後になるように引き伸ばす（大きすぎると遅い） */
       const opt = box
-        ? {box, long: Math.max(1500, Math.min(2200,
+        ? {box, clean: true, deg: cduSkew(first.res.words),
+           long: Math.max(1500, Math.min(2200,
             box.textH > 0 ? Math.round(Math.max(box.w, box.h) * (36/box.textH)) : 2000))}
         : {fine:true};
       const second = await runOnce(opt, 2);
@@ -2079,28 +2301,47 @@ async function cduRead(source){
     r = cduMerge(reads);
     if(r.base && shots[r.base]){ shot.replaceWith(shots[r.base]); shot = shots[r.base]; shot.id = 'cduShot'; }
 
-    /* POS FUEL は画面の右下にあり、文字の並びとしては拾いにくい。
-       ここまでで取れていなければ、語の位置からその場所だけを切り出し、
-       数字だけを読む設定でもう一度読む。 */
-    if(!r.fuel && alive()){
-      const cands = passes.map(p => ({p, fb: cduFuelBox(p.res.words, p.cv)}))
-                          .filter(c => c.fb)
-                          .sort((a,c) => (c.fb.byLabel?1:0) - (a.fb.byLabel?1:0));
-      for(const c of cands.slice(0,2)){
-        if(!alive()) break;
-        const fb = c.fb;
-        /* 小さく切るので、文字が 48px 前後になるまで引き伸ばす。
-           元より小さくはしない（縮めると数字が潰れて読めなくなる） */
-        const side = Math.max(fb.w, fb.h);
-        const long = Math.min(1600, Math.max(side,
-          fb.textH > 0 ? Math.round(side * (48/fb.textH)) : side*2));
-        const fcv  = cduPrep(source, {box: fb, long, fine: true});
-        const fres = await cduOcr(fcv, pct => {
-          if(alive()) cduStep('FUEL を読み取り中  ' + pct + '%');
-        }, alive, OCR_NUM);
-        text += '\n---- FUEL ' + JSON.stringify(fb) + '\n' + String(fres);
-        const v = cduFuelText(String(fres), !fb.byLabel);
-        if(v){ r.fuel = v; r.byBox = true; break; }
+    /* 読めなかった項目は、見出しの位置から**その 1 行**を切り出して読み直す。
+       プランと大きく食い違う値も、読み違えの疑いがあるので読み直す。 */
+    const doubt = cduDoubt(r);
+    const need  = CDU_KEYS.filter(k => !r[k] || doubt[k]);
+    if(need.length && alive()){
+      r.byBox = r.byBox || {};
+      for(const ln of CDU_LINES){
+        const keys = ln.keys.filter(k => need.indexOf(k) >= 0);
+        if(!keys.length || !alive()) continue;
+        const cands = passes.map(p => ({p, fb: cduSpotBox(p.res.words, p.cv, ln)}))
+                            .filter(c => c.fb)
+                            .sort((a,c) => (c.fb.byLabel?1:0) - (a.fb.byLabel?1:0));
+        const left = () => keys.filter(k => !r[k] || (doubt[k] && !r.byBox[k]));
+        for(const c of cands.slice(0, 2)){
+          if(!alive() || !left().length) break;
+          const fb = c.fb;
+          /* 切り出した帯は、文字が 48px 前後になるまで引き伸ばす。
+             元より小さくはしない（縮めると数字が潰れて読めなくなる） */
+          const side = Math.max(fb.w, fb.h);
+          const long = Math.min(2400, Math.max(side,
+            fb.textH > 0 ? Math.round(side * (48/fb.textH)) : side*2));
+          const deg  = cduSkew(c.p.res.words);
+          /* 白黒の付け方を変えて 2 通り試す。読めた時点で切り上げる */
+          for(const pp of [{}, {fine:true}]){
+            if(!alive() || !left().length) break;
+            const fcv  = cduPrep(source, Object.assign({box: fb, long, clean: true, deg}, pp));
+            const fres = await cduOcr(fcv, pct => {
+              if(alive()) cduStep(keys.join('/').toUpperCase() + ' を読み取り中  ' + pct + '%');
+            }, alive, ln.chars);
+            text += '\n---- ' + keys.join('/') + ' ' + JSON.stringify(fb) + JSON.stringify(pp) + '\n' + String(fres);
+            for(const key of left()){
+              const v = CDU_TAKE[key](String(fres), fb.byLabel);
+              if(!v) continue;
+              if(!r[key]){ r[key] = v; r.byBox[key] = true; continue; }
+              if(v === r[key]) continue;                 /* 同じ値が出た＝読み違えではない */
+              /* プランと食い違っていた値は、切り出して読んだ方を採る */
+              r.was = r.was || {}; r.was[key] = r[key];
+              r[key] = v; r.byBox[key] = true;
+            }
+          }
+        }
       }
     }
   }catch(err){
@@ -2271,25 +2512,17 @@ function cduReview(r, raw, shot){
   const posSame   = !!r.pos && posIdx === idx;
   const posOther  = (posIdx >= 0 && posIdx !== idx) ? STATE.wps[posIdx].name : null;
   const fixed = r.fixed || {}, seen = r.seen || {}, weak = r.weak || {};
+  const byBox = r.byBox || {}, was = r.was || {};
   /* 入れ先の WPT が決まっているので、プランの値と離れていないかも見る */
-  const odd = {};
-  if(w){
-    const pAlt = /^\d{4,5}$/.test(w.alt||'') ? +w.alt/100 : null;
-    if(pAlt != null && r.alt && Math.abs(+r.alt - pAlt) > 40)
-      odd.alt = 'プランは FL' + String(Math.round(pAlt)).padStart(3,'0');
-    const pTmp = /^-?\d{1,2}$/.test(w.tmp||'') ? +w.tmp : null;
-    if(pTmp != null && r.temp && Math.abs(+fmtSat(r.temp) - pTmp) > 15)
-      odd.temp = 'プランは ' + w.tmp + '°C';
-    if(/^\d{1,3}\.\d$/.test(w.fuel||'') && r.fuel && Math.abs(+r.fuel - +w.fuel) > Math.max(20, +w.fuel*0.25))
-      odd.fuel = 'プランは ' + w.fuel;
-  }
+  const odd = cduOdd(r, w);
   const row = (k, v, to) => {
     const key = k.toLowerCase();
     const note = fixed[key] ? '読み ' + fixed[key] + ' を補正'
                : seen[key]  ? '読み ' + seen[key] + ' は値としておかしい'
                : odd[key]   ? odd[key] + ' — 確認してください'
-               : weak[key]  ? '読み直しで取れた値・要確認'
-               : (key === 'fuel' && r.byBox) ? '右下の位置から読み取り・要確認' : '';
+               : was[key]   ? '読み ' + was[key] + ' を場所から読み直した・要確認'
+               : byBox[key] ? '見出しの位置から読み取り・要確認'
+               : weak[key]  ? '読み直しで取れた値・要確認' : '';
     return '<div class="k">' + k + '</div>' +
       '<div class="v' + (v ? '' : ' miss') + '">' + esc(v || '読み取れず') +
         (note ? '<span class="fix">' + esc(note) + '</span>' : '') +
