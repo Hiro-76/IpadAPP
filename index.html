@@ -1435,7 +1435,7 @@ const unzero = s => String(s).replace(/[OQDPGU]/g, '0');
 /* --- 読み取った文字列から 5 項目を拾う（OCR に依存しないので単体で試せる） --- */
 function parseCdu(text){
   const t = String(text||'').toUpperCase().replace(/[｜|]/g,'/');
-  const out = {pos:null, ata:null, alt:null, temp:null, wind:null, fixed:{}, seen:{}};
+  const out = {pos:null, ata:null, alt:null, temp:null, wind:null, fuel:null, fixed:{}, seen:{}};
 
   const lines = t.split(/\r?\n/);
   /* CDU の並びは
@@ -1477,15 +1477,26 @@ function parseCdu(text){
   /* TEMP: -25°C / -25 C / M25 C。°C が読めない時は WIND の行の頭の数字を採る
      （CDU は「-43°c  324°/ 28KT」と 1 行に並ぶ） */
   m = /([-+M]?\s*\d{1,3})\s*°?\s*C+\b/.exec(t)          /* °Cc と重なって出ることがある */
-   || /^\s*([-+M]?\d{1,3})\s*°?C*\s+\d{2,3}\s*°?\s*\/\s*\d{1,3}\s*KT/m.exec(t);
+   || /^\s*([-+M]?\d{1,3})\s*°[^\/\n]{0,8}\d{2,3}\s*°?\s*\/\s*\d{1,3}/m.exec(t);
+                                                        /* °c が読めなくても、風と同じ行の頭の数字 */
   if(m){
     const v = m[1].replace(/\s+/g,'').replace(/^M/,'-');
     const n = Math.abs(+v.replace(/^[-+]/,''));
     out.temp = (n <= 99) ? v : null;
   }
 
-  /* WIND: 180°/30KT。埃を点として拾うので、区切りの前後に混じる . は無視する */
-  m = /(\d{2,3})\s*°?[-.\s]*\/[-.\s]*(\d{1,3})[-.\s]*KT/.exec(t);
+  /* POS FUEL: 85.8 → RMG。埃で数字が増えないよう 1〜3 桁 + 小数 1 桁に限る */
+  m = /POS\s*FUEL\D{0,14}(\d{1,3})\s*\.\s*(\d)/.exec(t);
+  if(m){
+    const f = +(m[1] + '.' + m[2]);
+    out.fuel = (f > 0 && f < 999) ? (m[1] + '.' + m[2]) : null;
+    if(!out.fuel) out.seen.fuel = m[1] + '.' + m[2];
+  }
+
+  /* WIND: 180°/30KT。埃を点として拾うので、区切りの前後に混じる . は無視する。
+     KT が読めない時は「度 / 数字」の形だけで拾う */
+  m = /(\d{2,3})\s*°?[-.\s]*\/[-.\s]*(\d{1,3})[-.\s]*KT/.exec(t)
+   || /(\d{2,3})\s*°[-.\s]*\/[-.\s]*(\d{1,3})\b/.exec(t);
   if(m){
     const dir = zeroFix(m[1], okDir);               /* 924 → 024 */
     if(dir && dir !== m[1]) out.fixed.wind = m[1] + '/' + m[2];
@@ -1520,28 +1531,57 @@ function parseCdu(text){
   return out;
 }
 
+/* 2 つの語の違いの数（挿入・削除・置換）。OCR は文字を増やしたり落としたりする */
+function editDist(a, b){
+  const m = a.length, n = b.length;
+  let prev = new Array(n+1), cur = new Array(n+1);
+  for(let j=0;j<=n;j++) prev[j] = j;
+  for(let i=1;i<=m;i++){
+    cur[0] = i;
+    for(let j=1;j<=n;j++){
+      cur[j] = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+    }
+    const t = prev; prev = cur; cur = t;
+  }
+  return prev[n];
+}
+
 /* 読み取った POS を、いま開いているプランの WPT に当てる。
-   OCR の誤読を拾うため、1 文字違いまでは許容する。 */
+   OCR は形の似た文字を取り違え、余計な文字をくっつけることもある
+   （LCARTQ ← CARTO）ので、そこまで吸収して一番近いものを選ぶ。 */
 function matchWpt(pos){
   if(!pos || !STATE.wps.length) return -1;
-  const p = String(pos).toUpperCase();
-  let exact = STATE.wps.findIndex(w => String(w.name).toUpperCase() === p);
-  if(exact >= 0) return exact;
-  /* O/0 I/1 S/5 B/8 の取り違えを直してからもう一度 */
-  const norm = x => String(x).toUpperCase().replace(/O/g,'0').replace(/I/g,'1')
-                     .replace(/S/g,'5').replace(/B/g,'8');
-  exact = STATE.wps.findIndex(w => norm(w.name) === norm(p));
-  if(exact >= 0) return exact;
-  /* 1 文字違い（長さが同じもののみ） */
-  let best = -1, bestD = 99;
-  STATE.wps.forEach((w,i)=>{
-    const n = String(w.name).toUpperCase();
-    if(n.length !== p.length) return;
-    let d = 0;
-    for(let k=0;k<n.length;k++) if(n[k] !== p[k]) d++;
-    if(d < bestD){ bestD = d; best = i; }
-  });
-  return bestD <= 1 ? best : -1;
+  const clean = s => String(s).toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const p = clean(pos);
+  if(!p) return -1;
+  const names = STATE.wps.map(w => clean(w.name));
+  /* 形の似た文字をまとめてから比べる（O/Q/D→0、I/L→1、S→5、B→8、Z→2、G→6、U/V） */
+  const norm = x => x.replace(/[OQD]/g,'0').replace(/[IL]/g,'1').replace(/S/g,'5')
+                     .replace(/B/g,'8').replace(/Z/g,'2').replace(/G/g,'6').replace(/[UV]/g,'U');
+  const np = norm(p), nn = names.map(norm);
+
+  /* 同じ名前の地点が 2 つ以上ある航路もあるので、その時は
+     まだ ATO を入れていない先頭を選ぶ（順に通過して報告するため）。
+     名前が違うものが並んだ時は決めない。 */
+  const pickOne = list => {
+    if(!list.length) return -1;
+    if(list.length === 1) return list[0];
+    if(new Set(list.map(i => names[i])).size > 1) return -1;
+    const open = list.find(i => !STATE.wps[i].ato);
+    return open == null ? list[0] : open;
+  };
+  const where = f => names.map((n,i) => f(n, nn[i], i) ? i : -1).filter(i => i >= 0);
+
+  let c = where(n => n === p);                       if(c.length) return pickOne(c);
+  c = where((n,x) => x === np);                      if(c.length) return pickOne(c);
+  /* 前後に余計な文字が付いただけ（LCARTO ← CARTO） */
+  c = where((n,x) => x.length >= 3 && (np.indexOf(x) >= 0 || x.indexOf(np) >= 0));
+  if(c.length) return pickOne(c);
+  /* 一番近いものを選ぶ。長さ 5 以上なら 2 文字違いまで */
+  const ds = nn.map(x => editDist(x, np));
+  const min = Math.min.apply(null, ds);
+  if(min > (np.length >= 5 ? 2 : 1)) return -1;
+  return pickOne(ds.map((d,i) => d === min ? i : -1).filter(i => i >= 0));
 }
 
 /* --- 画面 --- */
@@ -1693,8 +1733,9 @@ function cduPrep(video, opt){
 
   /* しきい値は周りの明るさから決める（ベゼルの映り込みや画面のムラに強い）。
      一枚の平均だけで切ると、明るい枠が写り込んだ時に文字が背景側に沈む。 */
-  const bg  = boxMean(gray, W, H, Math.max(8, Math.round(Math.min(W,H)/22)));
-  const C   = 10;
+  const fine = !!(opt && opt.fine);              /* 薄い文字を拾う設定でもう一度読む用 */
+  const bg  = boxMean(gray, W, H, Math.max(8, Math.round(Math.min(W,H)/(fine ? 12 : 22))));
+  const C   = fine ? 5 : 10;
   const on  = new Uint8Array(W*H);
   for(let i=0;i<gray.length;i++){
     on[i] = (up ? (gray[i] > bg[i] + C) : (gray[i] < bg[i] - C)) ? 1 : 0;
@@ -1814,16 +1855,39 @@ async function cduShoot(video){
   await cduRead(src);
 }
 
-const cduCount = r => ['pos','ata','alt','temp','wind'].filter(k => r && r[k]).length;
-/* 足りない欄だけ、2 回目の読みで埋める */
-function cduMerge(a, b){
-  const out = Object.assign({}, a);
-  out.fixed = Object.assign({}, a.fixed); out.seen = Object.assign({}, a.seen);
-  for(const k of ['pos','ata','alt','temp','wind']){
-    if(out[k] || !b[k]) continue;
-    out[k] = b[k];
-    if(b.fixed && b.fixed[k]) out.fixed[k] = b.fixed[k];
-    delete out.seen[k];
+const CDU_KEYS = ['pos','ata','alt','temp','wind','fuel'];
+const cduCount = r => CDU_KEYS.filter(k => r && r[k]).length;
+/* 1 回目で読めた値を最優先。読めなかった欄は、
+   2 回目以降の読みが「2 回そろって同じ」時だけ採る（1 回きりの読み違いを入れない）。 */
+function cduMerge(list){
+  const rs = list.filter(Boolean);
+  if(!rs.length) return {pos:null, ata:null, alt:null, temp:null, wind:null, fuel:null, fixed:{}, seen:{}};
+  const out = {fixed:{}, seen:{}};
+  /* 添える絵は一番よく読めた回の物 */
+  let baseIdx = 0;
+  rs.forEach((r,i)=>{ if(cduCount(r) > cduCount(rs[baseIdx])) baseIdx = i; });
+  out.base = baseIdx;
+  out.weak = {};
+  for(const k of CDU_KEYS){
+    let src = rs[0][k] ? rs[0] : null;              /* 1 回目（切り出し + 前処理）を最優先 */
+    if(!src){
+      const votes = {};
+      rs.forEach(r => { if(r[k]) votes[r[k]] = (votes[r[k]]||0) + 1; });
+      const win = Object.keys(votes).filter(v => votes[v] >= 2);   /* 2 回そろえば確か */
+      if(win.length === 1) src = rs.find(r => r[k] === win[0]);
+      /* 1 回しか読めていない値は、白黒を反転した回のものでなければ採る。
+         ただし「読み直しで取れた値」として印を付け、確認画面で断る。 */
+      if(!src){
+        src = rs.find(r => r[k] && !r.__flip);
+        if(src) out.weak[k] = true;
+      }
+    }
+    out[k] = src ? src[k] : null;
+    if(src && src.fixed && src.fixed[k]) out.fixed[k] = src.fixed[k];
+    if(!out[k]){
+      const s2 = rs.find(r => r.seen && r.seen[k]);
+      if(s2) out.seen[k] = s2.seen[k];
+    }
   }
   return out;
 }
@@ -1835,24 +1899,31 @@ async function cduRead(source){
   cduSay('文字を読んでいます。数秒かかります。');
   let shot, r, text = '';
   try{
-    shot = cduPrep(source);
+    const shots = [cduPrep(source)], reads = [];
+    shot = shots[0];
     $('#cduBody').appendChild(shot); shot.id = 'cduShot';
     text = await cduOcr(shot);
-    r = parseCdu(text);
-    if(cduCount(r) < 5){
-      /* 1 回目が画面の切り出しなら 2 回目は写真全体、それでも駄目なら白黒の向きを逆に */
+    reads.push(parseCdu(text));
+    if(cduCount(reads[0]) < CDU_KEYS.length){
+      /* 2 回目は写真全体、3 回目は薄い文字も拾う設定。
+         それでも何も読めない時だけ、最後に白黒の向きを逆にして試す。 */
       let n = 1;
-      for(const opt of [{whole:true}, {flip:true}]){
-        $('#cduStep').textContent = 'もう一度読み直しています… ' + (++n) + '/3';
+      const plan = [{whole:true}, {fine:true}];
+      for(let k=0;k<plan.length;k++){
+        const opt = plan[k];
+        $('#cduStep').textContent = 'もう一度読み直しています… ' + (++n) + '/' + (plan.length+1);
         const alt = cduPrep(source, opt);
         const t2  = await cduOcr(alt);
         const r2  = parseCdu(t2);
-        if(cduCount(r2) > cduCount(r)){ shot.replaceWith(alt); alt.id = 'cduShot'; shot = alt; }
-        r = cduMerge(r, r2);
+        if(opt.flip) r2.__flip = true;
+        shots.push(alt); reads.push(r2);
         text += '\n---- ' + JSON.stringify(opt) + '\n' + t2;
-        if(cduCount(r) >= 5) break;
+        if(cduCount(r2) >= CDU_KEYS.length) break;
+        if(k === plan.length-1 && !reads.some(cduCount)) plan.push({whole:true, flip:true});
       }
     }
+    r = cduMerge(reads);
+    if(r.base && shots[r.base]){ shot.replaceWith(shots[r.base]); shot = shots[r.base]; shot.id = 'cduShot'; }
   }catch(err){
     console.error(err);
     $('#cduStep').textContent = '読み取れませんでした';
@@ -1981,11 +2052,12 @@ function ocrWorkerBlob(map){
 function cduReview(r, raw, shot){
   const idx = matchWpt(r.pos);
   const w   = idx >= 0 ? STATE.wps[idx] : null;
-  const fixed = r.fixed || {}, seen = r.seen || {};
+  const fixed = r.fixed || {}, seen = r.seen || {}, weak = r.weak || {};
   const row = (k, v, to) => {
     const key = k.toLowerCase();
     const note = fixed[key] ? '読み ' + fixed[key] + ' を補正'
-               : seen[key]  ? '読み ' + seen[key] + ' は値としておかしい' : '';
+               : seen[key]  ? '読み ' + seen[key] + ' は値としておかしい'
+               : weak[key]  ? '読み直しで取れた値・要確認' : '';
     return '<div class="k">' + k + '</div>' +
       '<div class="v' + (v ? '' : ' miss') + '">' + esc(v || '読み取れず') +
         (note ? '<span class="fix">' + esc(note) + '</span>' : '') +
@@ -2002,6 +2074,7 @@ function cduReview(r, raw, shot){
       row('ALT',  r.alt ? ('FL' + r.alt) : null, '→ ALT') +
       row('TEMP', r.temp ? (fmtSat(r.temp) + '°C') : null, '→ SAT') +
       row('WIND', r.wind ? (r.wind + 'KT') : null, '→ SPOT WND') +
+      row('FUEL', r.fuel, '→ RMG') +
     '</div>' +
     '<div class="cdu-row">' +
       (w ? '<button class="btn big" id="cduApply">反映する</button>' : '') +
@@ -2030,6 +2103,7 @@ function cduApply(idx, r){
   };
   set('ato',    r.ata);
   set('alt_in', r.alt);
+  set('rmg',    r.fuel ? fmtRmg(r.fuel) : '');     /* POS FUEL → RMG */
   set('sat',    r.temp ? fmtSat(r.temp) : '');
   set('spot',   r.wind ? fmtWind(r.wind) : '');
   const strip = $('#s'+idx);
@@ -2037,7 +2111,9 @@ function cduApply(idx, r){
   recompute();
   flushSave();
   cduClose();
-  resumeAt({i:idx, f:'rmg'}, null);
+  /* 埋まらなかった欄があればそこへ、全部埋まっていれば RMG を確かめられる位置へ */
+  const miss = ['ato','alt_in','rmg','sat','spot'].find(f => !w[f]);
+  resumeAt({i:idx, f: miss || 'rmg'}, null);
   toast('CDU から取り込みました — ' + String(w.seq).padStart(2,'0') + ' ' + w.name, {ms:6000});
 }
 
