@@ -455,6 +455,20 @@ function seekTo(v, t) {
     try { v.currentTime = t; } catch (e) { fin(); }
   });
 }
+/* seeked の直後はまだ前のコマが出ていることがある（iOS で起きやすい）。
+   新しいコマが画面に出るのを待ってから canvas に写す。 */
+function freshFrame(v) {
+  return new Promise(res => {
+    let done = false;
+    const fin = () => { if (done) return; done = true; clearTimeout(timer); res(); };
+    const timer = setTimeout(fin, 120);
+    /* 新しいコマの通知（対応端末）と、描画 2 回分の待ち。早く来た方で進む。 */
+    if (v.requestVideoFrameCallback) {
+      try { v.requestVideoFrameCallback(fin); } catch (e) {}
+    }
+    requestAnimationFrame(() => requestAnimationFrame(fin));
+  });
+}
 async function snapshot(can) {
   if (window.createImageBitmap) {
     try { return await createImageBitmap(can); } catch (e) { /* 下の複製に落ちる */ }
@@ -491,13 +505,17 @@ async function ingest(slot, file) {
   const v = document.createElement('video');
   v.muted = true; v.defaultMuted = true; v.playsInline = true; v.preload = 'auto';
   v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.setAttribute('webkit-playsinline', '');
+  /* iOS は DOM に入っていない video を読み込まないことがある。display:none も同じなので、
+     画面の外に 1px で置く（見えないが「表示されている」状態にする）。 */
+  v.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0.01;pointer-events:none';
+  document.body.appendChild(v);
   v.src = url;
 
   try {
-    await once(v, 'loadedmetadata', 12000);
-    /* iOS は一度再生しないとコマを出さないことがある（ここは操作直後なので許可される） */
+    await once(v, 'loadedmetadata', 20000);
+    /* iOS は一度再生しないとコマを出さないことがある（消音なので操作が無くても許される） */
     try { const p = v.play(); if (p && p.then) await p; v.pause(); } catch (e) {}
-    await once(v, 'loadeddata', 8000);
+    await once(v, 'loadeddata', 15000);
 
     let d = v.duration;
     if (!isFinite(d) || d <= 0) {                 /* 長さ不明の録画を救う */
@@ -532,23 +550,39 @@ async function ingest(slot, file) {
     const small = document.createElement('canvas'); small.width = aw; small.height = ah;
     const sctx = small.getContext('2d', { willReadFrequently: true });
 
-    for (let i = 0; i < n; i++) {
-      const t = Math.min(d - 1e-3, (i + 0.5) * d / n);
-      await seekTo(v, t);
+    /* シークの速さは端末と動画次第。遅ければ間隔を広げて、待ち時間が延びすぎないようにする。
+       時刻は 1 コマずつ記録しているので、間引いても後の処理はそのまま動く。 */
+    const MIN_FRAMES = 24, BUDGET_MS = 35000;
+    let step = d / n, t = step * 0.5, i = 0;
+    const started = performance.now();
+    while (t < d && c.frames.length < q.max) {
+      await seekTo(v, Math.min(d - 1e-3, t));
+      await freshFrame(v);
       bctx.drawImage(v, 0, 0, fw, fh);
       sctx.drawImage(v, 0, 0, aw, ah);
       c.frames.push(await snapshot(big));
       c.gray.push(toGray(sctx.getImageData(0, 0, aw, ah)));
       c.times.push(isFinite(v.currentTime) ? v.currentTime : t);
+      t += step;
+      i++;
+      if (i === 8 || i === 16 || i === 32 || i === 64) {   /* 何度か測り直す（後半で重くなる端末がある） */
+        const spent = performance.now() - started, per = spent / i;
+        const projected = spent + per * ((d - t) / step);
+        if (projected > BUDGET_MS) {
+          const left = Math.max(4, (BUDGET_MS - spent) / per);
+          step = Math.max(step, Math.min((d - t) / left, d / MIN_FRAMES));
+        }
+      }
       if (i % 2 === 0) {
-        prog.style.width = (4 + 92 * (i + 1) / n).toFixed(1) + '%';
-        meta.textContent = 'コマを展開中… ' + (i + 1) + ' / ' + n;
+        prog.style.width = (4 + 92 * Math.min(1, t / d)).toFixed(1) + '%';
+        meta.textContent = 'コマを展開中… ' + c.frames.length + ' コマ';
         await raf();
       }
     }
+    if (c.frames.length < 6) throw new Error('コマを取り出せなかった');
     /* 時刻が単調に増えない端末があるので直しておく */
     for (let i = 1; i < c.times.length; i++) {
-      if (!(c.times[i] > c.times[i - 1])) c.times[i] = c.times[i - 1] + d / n;
+      if (!(c.times[i] > c.times[i - 1])) c.times[i] = c.times[i - 1] + d / (c.times.length || 1);
     }
     prog.style.width = '100%';
     c.ready = true;
@@ -558,7 +592,8 @@ async function ingest(slot, file) {
     c.cur = c.marks.address;
     c.sel = 0;
     meta.innerHTML = '<b>' + c.frames.length + ' コマ</b>／' + d.toFixed(2) + ' 秒／' +
-                     vw + '×' + vh + ' → ' + fw + '×' + fh;
+                     vw + '×' + vh + ' → ' + fw + '×' + fh +
+                     (c.frames.length < n ? '<br>（端末の速さに合わせてコマを間引いた）' : '');
     afterIngest(slot);
   } catch (err) {
     console.warn(err);
@@ -568,7 +603,7 @@ async function ingest(slot, file) {
     toast('この動画は読み込めなかった。別の形式（MP4 / MOV）で試す。');
   } finally {
     c.busy = false;
-    try { v.removeAttribute('src'); v.load(); } catch (e) {}
+    try { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); } catch (e) {}
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 }
