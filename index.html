@@ -178,6 +178,21 @@ html[data-theme="day"] .btn.now-to{color:#fff}
 /* 縦向きのカメラだと縦長になってボタンが画面の外へ出てしまうので、高さを必ず抑える */
 #cduVideo,#cduShot{width:min(560px,100%);height:auto;max-height:42vh;object-fit:contain;
   border-radius:8px;background:#000}
+/* 撮る時の目安の枠。ここに CDU の画面を合わせると、その中だけを読む */
+/* 枠の外は少し暗くする。はみ出さないよう、映像の中で切る */
+.cdu-view{position:relative;display:flex;justify-content:center;width:min(560px,100%);
+  overflow:hidden;border-radius:8px}
+#cduAim{position:absolute;display:none;border:2px solid var(--cdu);border-radius:6px;
+  box-shadow:0 0 0 2000px rgba(0,0,0,.40);pointer-events:none}
+#cduAim.on{display:block}
+#cduAim b{position:absolute;left:-40px;right:-40px;top:calc(100% + 5px);text-align:center;
+  font:600 11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.06em;
+  color:#fff;text-shadow:0 1px 3px #000}
+#cduAim i{position:absolute;width:18px;height:18px;border:3px solid #fff}
+#cduAim i.tl{left:-3px;top:-3px;border-right:0;border-bottom:0}
+#cduAim i.tr{right:-3px;top:-3px;border-left:0;border-bottom:0}
+#cduAim i.bl{left:-3px;bottom:-3px;border-right:0;border-top:0}
+#cduAim i.br{right:-3px;bottom:-3px;border-left:0;border-top:0}
 /* 確認画面では「読み取りに使った絵」を小さく添える */
 #cduShot.thumb{width:min(300px,70%);max-height:22vh;opacity:.85}
 .cdu-grid{display:grid;grid-template-columns:auto auto auto;gap:8px 16px;align-items:center;
@@ -1697,8 +1712,12 @@ async function cduCamera(){
       '<button class="btn big" id="cduShoot">撮影して読み取る</button>' +
       '<button class="btn big" id="cduPick">写真から読み込む</button>' +
     '</div>' +
-    '<video id="cduVideo" playsinline muted></video>';
-  cduSay('CDU の <b>POS REPORT</b> の画面いっぱいにカメラを向けて撮影してください。');
+    '<div class="cdu-view"><video id="cduVideo" playsinline muted></video>' +
+      '<div id="cduAim"><b>この枠に CDU の画面を合わせる</b>' +
+      '<i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div>' +
+    '</div>';
+  cduSay('CDU の <b>POS REPORT</b> を<b>枠いっぱい</b>に合わせて撮影してください。' +
+         '枠に合わせると、その中だけを大きく読むので当たりやすくなります。');
   const video = $('#cduVideo');
   $('#cduPick').onclick  = ()=> $('#cduFile').click();
   $('#cduShoot').onclick = ()=> cduShoot(video);
@@ -1707,7 +1726,10 @@ async function cduCamera(){
       video:{facingMode:'environment', width:{ideal:1920}, height:{ideal:1080}}, audio:false});
     video.srcObject = cduStream;
     await video.play();
-    cduStep('画面が大きく写るように近づけてください');
+    cduAimFit();
+    video.onloadedmetadata = cduAimFit;
+    window.addEventListener('resize', cduAimFit);   /* 同じ関数なので何度足しても 1 つ */
+    cduStep('枠いっぱいになるまで近づけてください');
   }catch(err){
     cduStep('カメラを使えません');
     $('#cduShoot').disabled = true;
@@ -1715,6 +1737,24 @@ async function cduCamera(){
            '設定でカメラを許可するか、<b>写真から読み込む</b>を使ってください。');
     return;
   }
+}
+
+/* 枠を映像の上に重ねる。映像は object-fit:contain なので、
+   実際に絵が出ている範囲（上下か左右に余白ができる）を出してからその中に置く。 */
+function cduAimFit(){
+  const v = $('#cduVideo'), a = $('#cduAim');
+  if(!v || !a) return;
+  const vw = v.videoWidth, vh = v.videoHeight;
+  const ew = v.clientWidth, eh = v.clientHeight;
+  if(!vw || !vh || !ew || !eh){ a.classList.remove('on'); return; }
+  const k  = Math.min(ew/vw, eh/vh);
+  const cw = vw*k, ch = vh*k;
+  const g  = cduAimBox(cw, ch);
+  a.style.left   = Math.round(v.offsetLeft + (ew-cw)/2 + g.x) + 'px';
+  a.style.top    = Math.round(v.offsetTop  + (eh-ch)/2 + g.y) + 'px';
+  a.style.width  = Math.round(g.w) + 'px';
+  a.style.height = Math.round(g.h) + 'px';
+  a.classList.add('on');
 }
 
 /* 撮影済みの写真（カメラロールやファイル）から読む */
@@ -1986,13 +2026,68 @@ const CDU_LINES = [
    隣の値（TEMP の右の WIND など）が入らないぶん大きく引き伸ばせるので、
    `-42°c` が `-1°c`、`22KT` が `4KT` のように潰れた時の逃げ道になる。 */
 const CDU_SPOTS = [
-  {narrow:true, keys:['temp'], lab:/^T[EF8][MH]P$/,     left:1.8, right:2.6, chars:'0123456789-+MC°c '},
-  {narrow:true, keys:['wind'], lab:/^[WHMN]I?N[D0O]$/,  left:3.2, right:6.0, chars:'0123456789/°KT '},
-  {narrow:true, keys:['ata'],  lab:/^ATA$/,             left:3.2, right:2.6, chars:'0123456789Zz '},
-  {narrow:true, keys:['alt'],  lab:/^ALT$/,             left:2.0, right:4.6, chars:'FL0123456789 '},
+  {narrow:true, keys:['temp'], lab:/^T[EF8][MH]P$/,     left:1.8, right:2.6, chars:'0123456789-+MC°c ',
+                  at:[0.00, 0.30, 0.54, 0.72]},
+  {narrow:true, keys:['wind'], lab:/^[WHMN]I?N[D0O]$/,  left:3.2, right:6.0, chars:'0123456789/°KT ',
+                  at:[0.18, 0.74, 0.54, 0.72]},
+  {narrow:true, keys:['ata'],  lab:/^ATA$/,             left:3.2, right:2.6, chars:'0123456789Zz ',
+                  at:[0.40, 0.78, 0.13, 0.30]},
+  {narrow:true, keys:['alt'],  lab:/^ALT$/,             left:2.0, right:4.6, chars:'FL0123456789 ',
+                  at:[0.62, 1.00, 0.13, 0.30]},
   {narrow:true, keys:['pos'],  lab:/^P[O0Q]S$/, not:/REPO|FUEL|EPORT/, left:2.0, right:5.5,
-                  chars:'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '},
+                  chars:'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ', at:[0.00, 0.34, 0.13, 0.30]},
+  {narrow:true, keys:['fuel'], lab:/^[FP]?[UO]E[L1I]$/, last:true, left:4.0, right:7.0,
+                  chars:'0123456789. ', at:[0.46, 1.00, 0.65, 0.85]},
 ];
+
+/* 枠に合わせて撮った時だけ使う、最後の手段（上の at）。
+   CDU の POS REPORT は行も桁も決まった場所にあるので、見出しの字が
+   どうしても読めない項目は「枠の中のこの辺り」を切り出して読む。
+   割合は実機の写真で測った位置（画面の左上を 0、右下を 1 とした値）に
+   少し余裕を足した物。基準は切り出した範囲ではなく**枠そのもの**。
+   隣の値を巻き込むと読み違えるので、TEMP の帯は WIND の手前で止める。
+   写真の写り方に左右されるので、ここで取れた値は必ず「要確認」を付ける。 */
+function cduAtBox(guide, spec){
+  if(!guide || !spec || !spec.at) return null;
+  const [x0, x1, y0, y1] = spec.at;
+  const mx = guide.w * 0.02, my = guide.h * 0.015;
+  const box = {
+    x: guide.x + guide.w * x0 - mx, y: guide.y + guide.h * y0 - my,
+    w: guide.w * (x1 - x0) + mx*2,  h: guide.h * (y1 - y0) + my*2
+  };
+  box.textH = guide.h / 15;                    /* 画面はおよそ 14 行 */
+  box.byLabel = false; box.byAim = true;
+  return box;
+}
+
+/* 枠に合わせて撮れていないと分かる印。
+   ・枠の中でほとんど字が読めない
+   ・読めた字が枠の縁に接している（＝画面が枠からはみ出て切れている）      */
+function cduOffAim(pass){
+  const words = (pass && pass.res && pass.res.words || []).filter(v => v.confidence >= 60);
+  if(words.length < 4) return true;
+  const W = pass.cv.width, H = pass.cv.height, m = Math.min(W, H) * 0.012;
+  return words.some(v => v.bbox.x0 < m || v.bbox.y0 < m || v.bbox.x1 > W - m || v.bbox.y1 > H - m);
+}
+
+/* 映像・写真の中で「CDU の画面をここに合わせてください」と示す枠。
+   画面はおおむね 5:4 の横長。映像の短い方の 86% に収まる大きさで真ん中に置く。 */
+function cduAimBox(w, h){
+  const R = 1.25;
+  let fw = w * 0.88, fh = fw / R;
+  if(fh > h * 0.86){ fh = h * 0.86; fw = fh * R; }
+  return {x:(w - fw)/2, y:(h - fh)/2, w:fw, h:fh};
+}
+/* 枠の中を少しはみ出して切り出す（合わせ方が多少ずれても文字を捨てない） */
+function cduGuide(source){
+  const g = source && source.guide;
+  if(!g) return null;
+  const w = source.videoWidth, h = source.videoHeight;
+  const p = Math.min(g.w, g.h) * 0.06;
+  const x0 = Math.max(0, g.x - p), y0 = Math.max(0, g.y - p);
+  const x1 = Math.min(w, g.x + g.w + p), y1 = Math.min(h, g.y + g.h + p);
+  return (x1 - x0 > 80 && y1 - y0 > 80) ? {x:x0, y:y0, w:x1-x0, h:y1-y0} : null;
+}
 
 /* 写真の傾き（度）。同じ行で隣り合う語の中心を結んだ角度の中央値を採る。
    CDU を手持ちで撮ると必ず少し傾く。行を横長に切り出す時、傾いたままだと
@@ -2020,8 +2115,8 @@ function cduSkew(words){
 }
 
 /* 見出しの字の位置から、値の載っている場所を出す（元の写真の座標） */
-function cduSpotBox(words, prep, spec){
-  if(!prep || !prep.srcBox || !words || !words.length || !spec) return null;
+function cduSpotBox(words, prep, spec, guide){
+  if(!prep || !prep.srcBox || !words || !words.length || !spec) return cduAtBox(guide, spec);
   const s = prep.srcScale, b = prep.srcBox;
   const clip = (x, y, w, h) => {
     const x0 = Math.max(b.x, x), y0 = Math.max(b.y, y);
@@ -2082,10 +2177,10 @@ function cduSpotBox(words, prep, spec){
       if(box){ box.textH = hm; box.byLabel = true; return box; }
     }
   }
-  if(!spec.corner) return null;
+  if(!spec.corner) return cduAtBox(guide, spec);
   /* 見出しの字が読めていない場合: 文字のある範囲の右下 1/3（FUEL 用） */
   const use = words.filter(v => v.confidence >= 50 && /[A-Z0-9]/.test(v.text));
-  if(use.length < 3) return null;
+  if(use.length < 3) return cduAtBox(guide, spec);
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, hs = [];
   use.forEach(v => {
     x0 = Math.min(x0, v.bbox.x0); x1 = Math.max(x1, v.bbox.x1);
@@ -2097,7 +2192,7 @@ function cduSpotBox(words, prep, spec){
   const bw = (x1-x0)/s, bh = (y1-y0)/s;
   const box = clip(b.x + x0/s + bw*0.40, b.y + y0/s + bh*0.58, bw*0.60 + h, bh*0.42 + h*1.5);
   if(box){ box.textH = h; box.byLabel = false; }
-  return box;
+  return box || cduAtBox(guide, spec);
 }
 
 /* 小さい点のかたまり（埃・画面のムラ）を消す。文字は必ずこれより大きい。
@@ -2160,6 +2255,9 @@ async function cduShoot(video){
   const g = src.getContext('2d', {willReadFrequently:true});
   g.drawImage(video, 0, 0);
   src.videoWidth = src.width; src.videoHeight = src.height;
+  /* 画面に出していた枠と同じ場所を、写真の中の座標で覚えておく */
+  const aim = $('#cduAim');
+  if(aim && aim.classList.contains('on')) src.guide = cduAimBox(src.width, src.height);
   /* 真っ暗な絵を何十秒もかけて読むのは無駄。撮れているかだけ先に見る */
   if(cduBlank(g, src.width, src.height)){
     cduStep('映像が真っ暗です');
@@ -2309,11 +2407,22 @@ async function cduRead(source){
     };
     const enough = rr => CDU_MUST.every(k => rr && rr[k]);
 
-    const first = await runOnce({whole:true}, 2);
+    /* 枠に合わせて撮った時は、まず枠の中だけを読む。
+       画面が大きく写るので、1 回目から文字がはっきりする。
+       枠の中でほとんど何も読めなければ、合わせ損ねたとみて写真全体で読み直す。 */
+    const crop  = cduGuide(source);            /* 切り出す所（枠より少し広い） */
+    const guide = crop ? source.guide : null;  /* 位置の基準はあくまで枠そのもの */
+    let first = await runOnce(crop ? {box:crop, long:1500} : {whole:true}, 2);
     shot = shots[0];
     $('#cduBody').appendChild(shot); shot.id = 'cduShot';
+    /* 枠から外れていた（＝枠の中で読めない、または文字が枠の縁で切れている）なら、
+       切らずに写真全体でもう一度。合わせ損ねた時に切り取った端を読んで間違えない。 */
+    if(guide && cduOffAim(first)){
+      first = await runOnce({whole:true}, 3);
+      shot.replaceWith(shots[1]); shot = shots[1]; shot.id = 'cduShot';
+    }
 
-    if(!enough(reads[0])){
+    if(!enough(cduMerge(reads))){
       const box = cduWordBox(first.res.words, first.cv);
       /* 文字の高さが 36px 前後になるように引き伸ばす（大きすぎると遅い） */
       const opt = box
@@ -2344,9 +2453,11 @@ async function cduRead(source){
     const readSpot = async (spec) => {
       const keys = spec.keys.filter(want);
       if(!keys.length || !alive()) return;
-      const cands = passes.map(p => ({p, fb: cduSpotBox(p.res.words, p.cv, spec)}))
+      const cands = passes.map(p => ({p, fb: cduSpotBox(p.res.words, p.cv, spec, guide)}))
                           .filter(c => c.fb)
-                          .sort((a,c) => (c.fb.byLabel?1:0) - (a.fb.byLabel?1:0));
+                          .sort((a,c) => (c.fb.byLabel?1:0) - (a.fb.byLabel?1:0))
+                          /* 枠から決めた場所はどの回も同じなので 1 つに絞る */
+                          .filter((c,i,all) => !c.fb.byAim || all.findIndex(o => o.fb.byAim) === i);
       for(const c of cands.slice(0, 2)){
         if(!alive() || !spec.keys.some(want)) break;
         const fb = c.fb;
@@ -2369,11 +2480,12 @@ async function cduRead(source){
           for(const key of spec.keys.filter(want)){
             const v = CDU_TAKE[key](String(fres), fb.byLabel);
             if(!v) continue;
-            if(!r[key]){ r[key] = v; r.byBox[key] = true; continue; }
+            r.byAim = r.byAim || {};
+            if(!r[key]){ r[key] = v; r.byBox[key] = true; r.byAim[key] = !!fb.byAim; continue; }
             if(v === r[key]){ okd[key] = true; continue; }   /* 同じ値＝読み違えではない */
             /* プランと食い違っていた値は、切り出して読んだ方を採る */
             r.was = r.was || {}; r.was[key] = r[key];
-            r[key] = v; r.byBox[key] = true;
+            r[key] = v; r.byBox[key] = true; r.byAim[key] = !!fb.byAim;
           }
         }
       }
@@ -2554,7 +2666,7 @@ function cduReview(r, raw, shot){
   const posSame   = !!r.pos && posIdx === idx;
   const posOther  = (posIdx >= 0 && posIdx !== idx) ? STATE.wps[posIdx].name : null;
   const fixed = r.fixed || {}, seen = r.seen || {}, weak = r.weak || {};
-  const byBox = r.byBox || {}, was = r.was || {};
+  const byBox = r.byBox || {}, was = r.was || {}, byAim = r.byAim || {};
   /* 入れ先の WPT が決まっているので、プランの値と離れていないかも見る */
   const odd = cduOdd(r, w);
   const row = (k, v, to) => {
@@ -2563,6 +2675,7 @@ function cduReview(r, raw, shot){
                : seen[key]  ? '読み ' + seen[key] + ' は値としておかしい'
                : odd[key]   ? odd[key] + ' — 確認してください'
                : was[key]   ? '読み ' + was[key] + ' を場所から読み直した・要確認'
+               : byAim[key] ? '枠の中の位置から読み取り・要確認'
                : byBox[key] ? '見出しの位置から読み取り・要確認'
                : weak[key]  ? '読み直しで取れた値・要確認' : '';
     return '<div class="k">' + k + '</div>' +
