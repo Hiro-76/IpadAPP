@@ -356,7 +356,9 @@
       <label class="chk"><input type="checkbox" id="hud" checked>コマ番号</label>
     </div>
     <p class="note" style="margin:10px 0 0">
-      画面を 1 本指でドラッグすると B の位置を微調整、2 本指で画面全体の拡大・移動。
+      画面を 1 本指でドラッグすると B の位置を微調整、2 本指で画面全体の拡大・移動。<br>
+      パソコンではマウスのドラッグで B の微調整、ホイールで拡大、
+      <kbd>スペース</kbd> で再生 / 停止、<kbd>←</kbd> <kbd>→</kbd> でコマ送り。
     </p>
     <div class="actions">
       <button class="mini" id="resetPos">位置をリセット</button>
@@ -469,6 +471,12 @@ function freshFrame(v) {
     requestAnimationFrame(() => requestAnimationFrame(fin));
   });
 }
+function mediaErrText(code) {
+  if (code === 4) return '再生できない形式（HEVC など）。H.264 の MP4 で試す';
+  if (code === 3) return '動画をデコードできなかった';
+  if (code === 2) return '動画を読み込めなかった';
+  return '動画を開けなかった';
+}
 async function snapshot(can) {
   if (window.createImageBitmap) {
     try { return await createImageBitmap(can); } catch (e) { /* 下の複製に落ちる */ }
@@ -512,7 +520,9 @@ async function ingest(slot, file) {
   v.src = url;
 
   try {
-    await once(v, 'loadedmetadata', 20000);
+    /* 対応していない形式なら error が先に来る。20 秒待たずに知らせる。 */
+    await Promise.race([once(v, 'loadedmetadata', 20000), once(v, 'error', 20000)]);
+    if (v.error) throw new Error(mediaErrText(v.error.code));
     /* iOS は一度再生しないとコマを出さないことがある（消音なので操作が無くても許される） */
     try { const p = v.play(); if (p && p.then) await p; v.pause(); } catch (e) {}
     await once(v, 'loadeddata', 15000);
@@ -1239,6 +1249,36 @@ function bindStage() {
   const up = e => { pts.delete(e.pointerId); if (pts.size < 2) base = null; };
   cv.addEventListener('pointerup', up);
   cv.addEventListener('pointercancel', up);
+
+  /* マウス / トラックパッド: ホイールで拡大。指の下（カーソルの下）の点は動かさない。 */
+  cv.addEventListener('wheel', e => {
+    if (layoutMode() === 'side') return;
+    e.preventDefault();
+    const p = canvasXY(cv, e);
+    const before = viewOf(cv.width, cv.height);
+    const wx = (p.x - before.tx) / before.k, wy = (p.y - before.ty) / before.k;
+    V.zoom = clamp(V.zoom * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.03 : 0.0015)), 1, 4);
+    const k2 = V.zoom * Math.min(cv.width / A.fw, cv.height / A.fh);
+    V.panX = ((p.x - k2 * wx) - cv.width / 2 + k2 * (A.fw / 2)) / k2;
+    V.panY = ((p.y - k2 * wy) - cv.height / 2 + k2 * (A.fh / 2)) / k2;
+    $('zoom').value = Math.round(V.zoom * 100);
+    $('zoomV').textContent = V.zoom.toFixed(1) + '×';
+    drawOverlay();
+    saveSettings();
+  }, { passive: false });
+}
+
+/* キーボード（パソコンで使う時）: スペース＝再生 / 停止、左右＝コマ送り */
+function bindKeys() {
+  document.addEventListener('keydown', e => {
+    if ($('sec-ov').hidden) return;
+    const t = e.target, tag = t && t.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.code === 'Space' || e.key === ' ') { e.preventDefault(); setPlaying(!V.playing); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); setPlaying(false); stepFrame(-1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); setPlaying(false); stepFrame(1); }
+  });
 }
 
 /* ---- 画像の保存 ---- */
@@ -1359,6 +1399,7 @@ function bindUI() {
   };
   $('saveGrid').onclick = saveGrid;
   bindStage();
+  bindKeys();
   window.addEventListener('resize', () => { SLOTS.forEach(s => { if (CLIPS[s].ready) drawTime(s); }); });
   window.addEventListener('pagehide', saveSettings);
 }
