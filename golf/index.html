@@ -1,0 +1,1423 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <!-- 検索エンジンに載せない（URL を知っている人だけが辿り着ける状態にする） -->
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+  <meta name="googlebot" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>SWING OVERLAY</title>
+
+  <!-- ---- PWA / iPad ホーム画面（オフライン起動）---- -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0d2a1c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="SWING">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <style>
+    :root {
+      --bg1: #0d2a1c;
+      --bg2: #07120f;
+      --card: #10241c;
+      --line: rgba(255, 255, 255, 0.12);
+      --ink: #e8f5ee;
+      --dim: #9fb8ab;
+      --acc: #35d07f;
+      --a: #4de0ff;
+      --b: #ff5cc8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0 }
+
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: linear-gradient(160deg, var(--bg1) 0%, var(--bg2) 100%);
+      background-attachment: fixed;
+      color: var(--ink);
+      min-height: 100vh;
+      -webkit-text-size-adjust: 100%;
+    }
+    body { -webkit-touch-callout: none }
+
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+               calc(28px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+    }
+
+    /* ---- ヘッダ ---- */
+    .hd {
+      position: relative;
+      text-align: center;
+      padding: 22px 12px 20px;
+      margin-bottom: 18px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #17472f 0%, #0f2b21 60%, #123a4a 100%);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      border: 1px solid var(--line);
+    }
+    .hd h1 { font-size: 27px; letter-spacing: 1px; font-weight: 800 }
+    .hd p { margin-top: 6px; font-size: 13px; color: #cfe6da; line-height: 1.6 }
+
+    .badge {
+      position: absolute; top: 10px; right: 10px;
+      font-size: 10px; letter-spacing: 0.12em; font-weight: 700;
+      padding: 4px 9px; border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.45);
+      color: rgba(255, 255, 255, 0.9);
+      background: rgba(255, 255, 255, 0.12);
+      white-space: nowrap;
+    }
+    .badge.ready { border-color: #baffd4; color: #eafff2; background: rgba(0, 200, 90, 0.28) }
+    .badge.offline { border-color: #ffe08a; color: #fff6d9; background: rgba(255, 170, 0, 0.28) }
+    .badge.wait { opacity: 0.7 }
+
+    /* ---- カード ---- */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px 16px 18px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .card > h2 {
+      font-size: 16px; font-weight: 700;
+      display: flex; align-items: center; gap: 10px;
+      padding-bottom: 10px; margin-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    .num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; flex: none;
+      border-radius: 50%; background: var(--acc); color: #06281a;
+      font-size: 14px; font-weight: 800;
+    }
+    .note { font-size: 12.5px; color: var(--dim); line-height: 1.7; margin-bottom: 12px }
+    .note b { color: var(--ink); font-weight: 600 }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px }
+    @media (max-width: 700px) { .grid2 { grid-template-columns: 1fr } }
+
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px }
+    .meta { font-size: 12px; color: var(--dim); line-height: 1.6 }
+    .meta b { color: var(--ink) }
+
+    /* ---- 動画スロット ---- */
+    .clip, .calbox, .tbox {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .ctag {
+      display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: 0.08em;
+      padding: 3px 9px; border-radius: 999px; margin-bottom: 10px;
+    }
+    .tagA { background: rgba(77, 224, 255, 0.16); color: var(--a); border: 1px solid rgba(77, 224, 255, 0.4) }
+    .tagB { background: rgba(255, 92, 200, 0.16); color: var(--b); border: 1px solid rgba(255, 92, 200, 0.4) }
+
+    .filebtn {
+      display: block; text-align: center; cursor: pointer;
+      padding: 15px 12px; border-radius: 12px;
+      background: linear-gradient(135deg, #2fae6b 0%, #1d8f7f 100%);
+      color: #fff; font-size: 16px; font-weight: 700;
+      box-shadow: 0 5px 16px rgba(0, 0, 0, 0.35);
+    }
+    .filebtn:active { transform: translateY(1px) }
+    .fname { margin-top: 9px; font-size: 12.5px; color: var(--dim); word-break: break-all }
+    .bar { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); margin-top: 9px; overflow: hidden }
+    .bar > i { display: block; height: 100%; width: 0; background: var(--acc); transition: width 0.15s linear }
+
+    button {
+      font-family: inherit; cursor: pointer;
+      border: 1px solid var(--line); border-radius: 10px;
+      background: rgba(255, 255, 255, 0.08); color: var(--ink);
+      padding: 11px 14px; font-size: 14px; font-weight: 600;
+      min-height: 42px;
+    }
+    button:active { transform: translateY(1px) }
+    button:disabled { opacity: 0.4 }
+    button.mini { padding: 7px 11px; font-size: 12.5px; min-height: 34px }
+    button.prim {
+      background: linear-gradient(135deg, #2fae6b 0%, #1d8f7f 100%);
+      border-color: transparent; color: #fff;
+    }
+
+    select, input[type=range] { font-family: inherit }
+    select {
+      background: rgba(255, 255, 255, 0.08); color: var(--ink);
+      border: 1px solid var(--line); border-radius: 9px;
+      padding: 8px 10px; font-size: 13.5px; min-height: 38px;
+    }
+    .fld { display: inline-flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--dim) }
+    .chk { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink) }
+    .chk input { width: 20px; height: 20px; accent-color: var(--acc) }
+
+    input[type=range] {
+      -webkit-appearance: none; appearance: none;
+      height: 30px; background: transparent; flex: 1 1 120px; min-width: 90px;
+    }
+    input[type=range]::-webkit-slider-runnable-track {
+      height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.18);
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 26px; height: 26px; margin-top: -11px;
+      border-radius: 50%; background: var(--acc); border: 2px solid #06281a;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    }
+
+    canvas { display: block; max-width: 100%; touch-action: none }
+    canvas.preview, canvas.cal {
+      width: 100%; border-radius: 10px; background: #000;
+      border: 1px solid var(--line);
+    }
+    canvas.energy { width: 100%; height: 54px; border-radius: 8px; background: rgba(0, 0, 0, 0.35); margin-top: 8px }
+
+    /* ---- 節目チップ ---- */
+    .chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px }
+    .chip {
+      padding: 8px 4px; border-radius: 9px; font-size: 11.5px; font-weight: 700;
+      border: 1px solid var(--line); background: rgba(255, 255, 255, 0.06); color: var(--dim);
+      text-align: center; line-height: 1.35; min-height: 44px;
+    }
+    .chip b { display: block; font-size: 13px; color: var(--ink); font-weight: 800 }
+    .chip.on { background: rgba(53, 208, 127, 0.22); border-color: var(--acc); color: #d9ffe9 }
+    .chip.on b { color: #fff }
+
+    /* ---- 重ね合わせ ---- */
+    .stage {
+      background: #000; border: 1px solid var(--line); border-radius: 12px;
+      overflow: hidden; display: flex; justify-content: center;
+    }
+    .stage canvas { width: 100%; height: auto }
+    .transport { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap }
+    .transport #play { min-width: 108px }
+    .ctrls {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px; margin-top: 14px;
+      padding-top: 14px; border-top: 1px solid var(--line);
+    }
+    .ctrls .fld select { width: 100% }
+    .slider { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; color: var(--dim) }
+    .slider .cap { display: flex; justify-content: space-between; align-items: baseline; gap: 8px }
+    .slider .cap b { color: var(--ink); font-size: 12.5px }
+    .slider input[type=range] { width: 100%; flex: 0 0 auto }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px }
+
+    /* ---- トースト ---- */
+    #toast {
+      position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom));
+      transform: translateX(-50%) translateY(180%);
+      z-index: 60; display: flex; align-items: center; gap: 12px;
+      max-width: min(92vw, 560px); padding: 12px 14px; border-radius: 12px;
+      background: #123024; border: 1px solid rgba(255, 255, 255, 0.18);
+      color: var(--ink); font-size: 13px; line-height: 1.5;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+      transition: transform 0.25s ease, opacity 0.25s ease;
+      opacity: 0; pointer-events: none;
+    }
+    #toast.on { transform: translateX(-50%) translateY(0); opacity: 1; pointer-events: auto }
+    #toast button { min-height: 0; padding: 7px 12px; font-size: 12px; flex-shrink: 0 }
+
+    footer { text-align: center; font-size: 11.5px; color: var(--dim); line-height: 1.8; padding: 6px 4px 0 }
+    footer a { color: var(--acc) }
+    [hidden] { display: none !important }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hd">
+    <span class="badge wait" id="netstate" title="オフライン利用の状態">CACHE …</span>
+    <h1>SWING OVERLAY</h1>
+    <p>2 つのスイング動画を、体の大きさとスイングの速さをそろえて重ねる</p>
+  </header>
+
+  <!-- ============ 1. 読み込み ============ -->
+  <section class="card">
+    <h2><span class="num">1</span>動画を読み込む</h2>
+    <p class="note">
+      端末の中だけで処理する。動画がどこかへ送られることはない。<br>
+      <b>A</b> が基準（お手本）、<b>B</b> が A に合わせて重ねられる方。3〜6 秒に切り詰めた動画だと速い。
+    </p>
+    <div class="grid2">
+      <div class="clip">
+        <div class="ctag tagA">A ＝ 基準</div>
+        <label class="filebtn">動画を選ぶ<input type="file" accept="video/*" id="file-A" hidden></label>
+        <div class="fname" id="name-A">未選択</div>
+        <div class="bar"><i id="prog-A"></i></div>
+        <div class="meta" id="meta-A"></div>
+      </div>
+      <div class="clip">
+        <div class="ctag tagB">B ＝ 重ねる方</div>
+        <label class="filebtn">動画を選ぶ<input type="file" accept="video/*" id="file-B" hidden></label>
+        <div class="fname" id="name-B">未選択</div>
+        <div class="bar"><i id="prog-B"></i></div>
+        <div class="meta" id="meta-B"></div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label class="fld">コマの細かさ
+        <select id="quality">
+          <option value="light">軽量（20 コマ/秒・最大 90 コマ）</option>
+          <option value="std" selected>標準（30 コマ/秒・最大 150 コマ）</option>
+          <option value="fine">精密（60 コマ/秒・最大 240 コマ）</option>
+        </select>
+      </label>
+      <span class="meta">細かくすると滑らかになるが、読み込みと端末のメモリを多く使う。<br>設定を変えたら動画を選び直す。</span>
+    </div>
+  </section>
+
+  <!-- ============ 2. 縮尺 ============ -->
+  <section class="card" id="sec-cal" hidden>
+    <h2><span class="num">2</span>体の大きさをそろえる</h2>
+    <p class="note">
+      <b>頭の線</b>と<b>足元の線</b>を、それぞれの人に合わせて指でドラッグする。
+      この 2 本の間隔（＝身長）の比で B を拡大・縮小して重ねる。
+      <b>縦の線</b>は重ねる時の左右の基準（体の中心）。
+    </p>
+    <div class="grid2" id="calGrid"></div>
+  </section>
+
+  <!-- ============ 3. タイミング ============ -->
+  <section class="card" id="sec-time" hidden>
+    <h2><span class="num">3</span>スイングの速さをそろえる</h2>
+    <p class="note">
+      <b>アドレス / トップ / インパクト / フィニッシュ</b>の 4 つの節目をそれぞれの動画で決める。
+      節目のボタンを選び、スライダーでコマを合わせる。<b>自動検出</b>で当たりを付けてから直すのが速い。
+      緑の波は動きの大きさ（山がインパクト、谷がトップの目安）。
+    </p>
+    <div class="grid2" id="timeGrid"></div>
+  </section>
+
+  <!-- ============ 4. 重ね合わせ ============ -->
+  <section class="card" id="sec-ov" hidden>
+    <h2><span class="num">4</span>重ねて見る</h2>
+    <div class="stage"><canvas id="ov"></canvas></div>
+    <div class="transport">
+      <button id="play" class="prim">▶ 再生</button>
+      <input type="range" id="scrub" min="0" max="1000" value="0">
+      <button class="mini" id="stepB">◀ コマ</button>
+      <button class="mini" id="stepF">コマ ▶</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <span class="meta" id="posmeta"></span>
+    </div>
+
+    <div class="ctrls">
+      <label class="fld">合わせ方
+        <select id="align">
+          <option value="phase" selected>4 つの節目でそろえる</option>
+          <option value="impact">インパクトだけそろえる</option>
+          <option value="none">そろえない（実際の速さ）</option>
+        </select>
+      </label>
+      <label class="fld">テンポの基準
+        <select id="ref"><option value="A" selected>A の速さ</option><option value="B">B の速さ</option></select>
+      </label>
+      <label class="fld">表示
+        <select id="layout"><option value="over" selected>重ねる</option><option value="side">横に並べる</option></select>
+      </label>
+      <label class="fld">重ね方
+        <select id="blend">
+          <option value="source-over" selected>普通に重ねる</option>
+          <option value="difference">差分（ズレが光る）</option>
+          <option value="screen">スクリーン（明るい所を残す）</option>
+          <option value="lighten">比較（明）</option>
+          <option value="multiply">乗算（暗い所を残す）</option>
+        </select>
+      </label>
+      <label class="fld">再生速度
+        <select id="speed">
+          <option value="1">等倍</option>
+          <option value="0.5" selected>1/2</option>
+          <option value="0.25">1/4</option>
+          <option value="0.1">1/10</option>
+        </select>
+      </label>
+      <div class="slider"><span class="cap">B の濃さ <b id="opaV">55%</b></span>
+        <input type="range" id="opa" min="0" max="100" value="55"></div>
+      <div class="slider"><span class="cap">大きさ微調整 <b id="gainV">1.00×</b></span>
+        <input type="range" id="gain" min="60" max="160" value="100"></div>
+      <div class="slider"><span class="cap">拡大 <b id="zoomV">1.0×</b></span>
+        <input type="range" id="zoom" min="100" max="400" value="100"></div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <label class="chk"><input type="checkbox" id="tint" checked>色分け（A 水色 / B 桃色）</label>
+      <label class="chk"><input type="checkbox" id="guide" checked>ガイド線</label>
+      <label class="chk"><input type="checkbox" id="loop" checked>くり返し</label>
+      <label class="chk"><input type="checkbox" id="hud" checked>コマ番号</label>
+    </div>
+    <p class="note" style="margin:10px 0 0">
+      画面を 1 本指でドラッグすると B の位置を微調整、2 本指で画面全体の拡大・移動。
+    </p>
+    <div class="actions">
+      <button class="mini" id="resetPos">位置をリセット</button>
+      <button class="mini" id="savePng">この重ね画像を保存</button>
+      <button class="mini" id="saveGrid">4 コマ比較を保存</button>
+    </div>
+  </section>
+
+  <footer>
+    すべて端末内で処理し、外部への通信はしない。<br>
+    共有 <span aria-hidden="true">⤴</span> →「ホーム画面に追加」で、Wi-Fi 無しでも起動できる。
+  </footer>
+</div>
+
+<div id="toast"><span id="toastMsg"></span><button id="toastBtn" hidden></button></div>
+
+<script>
+'use strict';
+/* =======================================================================
+   SWING OVERLAY — 2 本のスイング動画を、縮尺とタイミングをそろえて重ねる
+   ・動画はすべて端末内で処理する（外部通信なし）
+   ・コマに展開してから扱うので、2 本を好きな速さでぴたりと同期できる
+   ======================================================================= */
+
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => (v < a ? a : (v > b ? b : v));
+const raf = () => new Promise(r => requestAnimationFrame(r));
+const SLOTS = ['A', 'B'];
+const KEYS = ['address', 'top', 'impact', 'finish'];
+const KEY_JA = { address: 'アドレス', top: 'トップ', impact: 'インパクト', finish: 'フィニッシュ' };
+const LS_SET = 'swingOverlay.settings.v1';
+
+/* ---- トースト ---- */
+let toastTimer = null;
+function toast(msg, opt) {
+  opt = opt || {};
+  const box = $('toast'), btn = $('toastBtn');
+  $('toastMsg').textContent = msg;
+  if (opt.label) {
+    btn.hidden = false;
+    btn.textContent = opt.label;
+    btn.onclick = () => { hideToast(); if (opt.action) opt.action(); };
+  } else { btn.hidden = true; btn.onclick = null; }
+  box.classList.add('on');
+  clearTimeout(toastTimer);
+  if (opt.ms !== 0) toastTimer = setTimeout(hideToast, opt.ms || 5000);
+}
+function hideToast() { clearTimeout(toastTimer); $('toast').classList.remove('on'); }
+
+/* =======================================================================
+   クリップ（動画 1 本分）
+   ======================================================================= */
+function newClip(id) {
+  return {
+    id: id,
+    name: '', ready: false, busy: false,
+    fw: 0, fh: 0,                 /* 展開したコマの大きさ */
+    frames: [], times: [],        /* コマ画像 と その時刻(秒) */
+    gray: [], anaW: 0, anaH: 0,   /* 解析用の縮小グレースケール */
+    energy: null,                 /* コマ間の動きの大きさ */
+    marks: null,                  /* 4 つの節目のコマ番号 */
+    cal: { head: 0.16, ground: 0.90, cx: 0.5 },  /* 頭 / 足元 / 中心（0〜1） */
+    flip: false,
+    sel: 0,                       /* いま編集中の節目 */
+    cur: 0,                       /* プレビュー中のコマ */
+    tintCan: null
+  };
+}
+const CLIPS = { A: newClip('A'), B: newClip('B') };
+const QUALITY = {
+  light: { fps: 20, max: 90, long: 512, budget: 34 * 1024 * 1024 },
+  std:   { fps: 30, max: 150, long: 640, budget: 46 * 1024 * 1024 },
+  fine:  { fps: 60, max: 240, long: 640, budget: 58 * 1024 * 1024 }
+};
+
+const dur = c => (c.times.length ? c.times[c.times.length - 1] - c.times[0] : 0);
+const mk = (c, k) => c.times[c.marks[k]];
+
+/* =======================================================================
+   動画の読み込みとコマ展開
+   ======================================================================= */
+function once(el, ev, ms) {
+  return new Promise(res => {
+    let done = false;
+    const fin = () => { if (done) return; done = true; clearTimeout(t); el.removeEventListener(ev, fin); res(); };
+    const t = setTimeout(fin, ms || 8000);
+    el.addEventListener(ev, fin);
+  });
+}
+function seekTo(v, t) {
+  return new Promise(res => {
+    let done = false;
+    const fin = () => { if (done) return; done = true; clearTimeout(timer); v.removeEventListener('seeked', fin); res(); };
+    const timer = setTimeout(fin, 2500);
+    v.addEventListener('seeked', fin);
+    try { v.currentTime = t; } catch (e) { fin(); }
+  });
+}
+async function snapshot(can) {
+  if (window.createImageBitmap) {
+    try { return await createImageBitmap(can); } catch (e) { /* 下の複製に落ちる */ }
+  }
+  const c = document.createElement('canvas');
+  c.width = can.width; c.height = can.height;
+  c.getContext('2d').drawImage(can, 0, 0);
+  return c;
+}
+function toGray(img) {
+  const d = img.data, n = d.length >> 2, g = new Uint8Array(n);
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    g[i] = (d[p] * 299 + d[p + 1] * 587 + d[p + 2] * 114) / 1000;
+  }
+  return g;
+}
+function disposeFrames(c) {
+  for (const f of c.frames) { if (f && f.close) { try { f.close(); } catch (e) {} } }
+  c.frames = []; c.times = []; c.gray = []; c.energy = null; c.marks = null; c.ready = false;
+}
+
+async function ingest(slot, file) {
+  const c = CLIPS[slot];
+  if (c.busy) return;
+  c.busy = true;
+  const prog = $('prog-' + slot), meta = $('meta-' + slot);
+  $('name-' + slot).textContent = file.name;
+  meta.textContent = '読み込み中…';
+  prog.style.width = '2%';
+
+  disposeFrames(c);
+  c.name = file.name;
+  const url = URL.createObjectURL(file);
+  const v = document.createElement('video');
+  v.muted = true; v.defaultMuted = true; v.playsInline = true; v.preload = 'auto';
+  v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.setAttribute('webkit-playsinline', '');
+  v.src = url;
+
+  try {
+    await once(v, 'loadedmetadata', 12000);
+    /* iOS は一度再生しないとコマを出さないことがある（ここは操作直後なので許可される） */
+    try { const p = v.play(); if (p && p.then) await p; v.pause(); } catch (e) {}
+    await once(v, 'loadeddata', 8000);
+
+    let d = v.duration;
+    if (!isFinite(d) || d <= 0) {                 /* 長さ不明の録画を救う */
+      await seekTo(v, 1e6);
+      d = isFinite(v.duration) ? v.duration : v.currentTime;
+      await seekTo(v, 0);
+    }
+    if (!isFinite(d) || d <= 0) throw new Error('動画の長さを取れなかった');
+    const vw = v.videoWidth, vh = v.videoHeight;
+    if (!vw || !vh) throw new Error('動画の大きさを取れなかった');
+
+    const q = QUALITY[$('quality').value] || QUALITY.std;
+    const n = clamp(Math.round(d * q.fps), 6, q.max);
+
+    /* メモリに収まるコマの大きさを決める */
+    const ar = vw / vh;
+    let long = Math.min(q.long, Math.max(vw, vh)), fw, fh;
+    for (;;) {
+      if (ar >= 1) { fw = Math.round(long / 2) * 2; fh = Math.round(long / ar / 2) * 2; }
+      else { fh = Math.round(long / 2) * 2; fw = Math.round(long * ar / 2) * 2; }
+      if (fw * fh * 4 * n <= q.budget || long <= 240) break;
+      long -= 32;
+    }
+    c.fw = fw; c.fh = fh;
+    const aLong = 128;
+    const aw = ar >= 1 ? aLong : Math.max(24, Math.round(aLong * ar));
+    const ah = ar >= 1 ? Math.max(24, Math.round(aLong / ar)) : aLong;
+    c.anaW = aw; c.anaH = ah;
+
+    const big = document.createElement('canvas'); big.width = fw; big.height = fh;
+    const bctx = big.getContext('2d', { willReadFrequently: false });
+    const small = document.createElement('canvas'); small.width = aw; small.height = ah;
+    const sctx = small.getContext('2d', { willReadFrequently: true });
+
+    for (let i = 0; i < n; i++) {
+      const t = Math.min(d - 1e-3, (i + 0.5) * d / n);
+      await seekTo(v, t);
+      bctx.drawImage(v, 0, 0, fw, fh);
+      sctx.drawImage(v, 0, 0, aw, ah);
+      c.frames.push(await snapshot(big));
+      c.gray.push(toGray(sctx.getImageData(0, 0, aw, ah)));
+      c.times.push(isFinite(v.currentTime) ? v.currentTime : t);
+      if (i % 2 === 0) {
+        prog.style.width = (4 + 92 * (i + 1) / n).toFixed(1) + '%';
+        meta.textContent = 'コマを展開中… ' + (i + 1) + ' / ' + n;
+        await raf();
+      }
+    }
+    /* 時刻が単調に増えない端末があるので直しておく */
+    for (let i = 1; i < c.times.length; i++) {
+      if (!(c.times[i] > c.times[i - 1])) c.times[i] = c.times[i - 1] + d / n;
+    }
+    prog.style.width = '100%';
+    c.ready = true;
+    analyze(c);
+    autoCal(c);
+    autoMarks(c);
+    c.cur = c.marks.address;
+    c.sel = 0;
+    meta.innerHTML = '<b>' + c.frames.length + ' コマ</b>／' + d.toFixed(2) + ' 秒／' +
+                     vw + '×' + vh + ' → ' + fw + '×' + fh;
+    afterIngest(slot);
+  } catch (err) {
+    console.warn(err);
+    disposeFrames(c);
+    prog.style.width = '0';
+    meta.textContent = '読み込めなかった（' + (err && err.message ? err.message : 'エラー') + '）';
+    toast('この動画は読み込めなかった。別の形式（MP4 / MOV）で試す。');
+  } finally {
+    c.busy = false;
+    try { v.removeAttribute('src'); v.load(); } catch (e) {}
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+}
+
+/* =======================================================================
+   解析 — 動きの大きさ / 動きの通った範囲
+   ======================================================================= */
+function analyze(c) {
+  const n = c.gray.length, N = c.anaW * c.anaH;
+  const en = new Float32Array(n);
+  const hit = new Uint16Array(N);
+  for (let i = 1; i < n; i++) {
+    const a = c.gray[i - 1], b = c.gray[i];
+    let s = 0;
+    for (let p = 0; p < N; p++) {
+      const d = Math.abs(b[p] - a[p]);
+      s += d;
+      if (d > 18) hit[p]++;
+    }
+    en[i] = s / N;
+  }
+  if (n > 1) en[0] = en[1];
+  c.energy = en;
+  c.hit = hit;
+}
+
+/* 動きの通った範囲から、頭・足元・体の中心を推す。
+   クラブは細いので通った画素が少ない。行ごとの画素数が多い所＝体、と見て上端と下端を取る。 */
+function autoCal(c) {
+  const W = c.anaW, H = c.anaH, hit = c.hit;
+  const rows = new Int32Array(H), cols = new Float64Array(W);
+  let total = 0, rowMax = 0;
+  for (let y = 0; y < H; y++) {
+    let n = 0;
+    for (let x = 0; x < W; x++) {
+      if (hit[y * W + x] >= 2) { n++; cols[x]++; total++; }
+    }
+    rows[y] = n;
+    if (n > rowMax) rowMax = n;
+  }
+  if (!total || rowMax < 3) return;                /* 動きが拾えない時は既定値のまま */
+  const thr = Math.max(2, rowMax * 0.15);
+  let top = -1, bottom = -1;
+  for (let y = 0; y < H; y++) { if (rows[y] >= thr) { if (top < 0) top = y; bottom = y; } }
+  if (top < 0 || bottom - top < 3) return;
+  /* 中心 x は動いた画素の中央値 */
+  let acc = 0, cx = W / 2;
+  for (let x = 0; x < W; x++) { acc += cols[x]; if (acc >= total / 2) { cx = x + 0.5; break; } }
+  const ground = clamp((bottom + 1) / H, 0.2, 1);
+  c.cal = { head: clamp(top / H, 0, ground - 0.12), ground: ground, cx: clamp(cx / W, 0.05, 0.95) };
+}
+
+/* 動きの大きさから 4 つの節目を推す */
+function smooth(a) {
+  const n = a.length, o = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = 0, w = 0;
+    for (let k = -1; k <= 1; k++) { const j = i + k; if (j >= 0 && j < n) { s += a[j]; w++; } }
+    o[i] = s / w;
+  }
+  return o;
+}
+function autoMarks(c) {
+  const n = c.energy.length;
+  const e = smooth(c.energy);
+  const sorted = Array.from(e).sort((x, y) => x - y);
+  const base = sorted[Math.floor(n * 0.2)] || 0;
+  let peak = 0, impact = n - 1;
+  for (let i = 0; i < n; i++) if (e[i] > peak) { peak = e[i]; impact = i; }
+  const thr = base + (peak - base) * 0.12;
+
+  /* トップ: 切り返しでいったん動きが止まる。インパクトの手前で最も静かなコマ */
+  let top = Math.max(1, impact - 1), lo = Infinity;
+  const s0 = Math.max(1, Math.round(impact * 0.35));
+  for (let i = s0; i < impact; i++) { if (e[i] < lo) { lo = e[i]; top = i; } }
+  /* アドレス: バックスイングで最もよく動いたコマから遡り、静けさが 2 コマ続く所。
+     トップ自体も静かなので、必ずバックスイングの山から遡る。 */
+  let bmax = 0, bi = Math.max(1, Math.round(top * 0.5));
+  for (let i = 1; i < top; i++) { if (e[i] > bmax) { bmax = e[i]; bi = i; } }
+  const thrA = base + Math.max(0, bmax - base) * 0.25;
+  let address = 0;
+  for (let i = bi - 1; i >= 1; i--) {
+    if (e[i] < thrA && e[i - 1] < thrA) { address = i; break; }
+  }
+  /* フィニッシュ: 動きが収まった所 */
+  let finish = n - 1;
+  for (let i = impact + 1; i < n - 1; i++) {
+    if (e[i] < thr && e[i + 1] < thr) { finish = i; break; }
+  }
+
+  c.marks = orderMarks({ address: address, top: top, impact: impact, finish: finish }, n);
+}
+function orderMarks(m, n) {
+  m.address = clamp(Math.round(m.address), 0, n - 4);
+  m.top = clamp(Math.round(m.top), m.address + 1, n - 3);
+  m.impact = clamp(Math.round(m.impact), m.top + 1, n - 2);
+  m.finish = clamp(Math.round(m.finish), m.impact + 1, n - 1);
+  return m;
+}
+function setMark(c, key, val) {
+  const n = c.frames.length;
+  const m = c.marks, i = KEYS.indexOf(key);
+  const loK = i > 0 ? m[KEYS[i - 1]] + 1 : 0;
+  const hiK = i < 3 ? m[KEYS[i + 1]] - 1 : n - 1;
+  m[key] = clamp(Math.round(val), Math.min(loK, hiK), Math.max(loK, hiK));
+}
+function indexAtTime(c, t) {
+  const a = c.times, n = a.length;
+  if (t <= a[0]) return 0;
+  if (t >= a[n - 1]) return n - 1;
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (a[mid] <= t) lo = mid; else hi = mid; }
+  return (t - a[lo] <= a[hi] - t) ? lo : hi;
+}
+</script>
+
+<script>
+'use strict';
+/* =======================================================================
+   画面づくり — 2. 縮尺合わせ / 3. タイミング合わせ
+   ======================================================================= */
+const A = CLIPS.A, B = CLIPS.B;
+
+function el(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html != null) e.innerHTML = html;
+  return e;
+}
+function canvasXY(cv, ev) {
+  const r = cv.getBoundingClientRect();
+  return { x: (ev.clientX - r.left) * cv.width / r.width, y: (ev.clientY - r.top) * cv.height / r.height };
+}
+const TAG = { A: 'A ＝ 基準', B: 'B ＝ 重ねる方' };
+
+/* ---- 2. 縮尺 ---- */
+function buildCal() {
+  const grid = $('calGrid');
+  grid.innerHTML = '';
+  SLOTS.forEach(s => {
+    const c = CLIPS[s];
+    if (!c.ready) return;
+    const box = el('div', 'calbox');
+    box.appendChild(el('div', 'ctag tag' + s, TAG[s]));
+    const cv = el('canvas', 'cal'); cv.id = 'cal-' + s;
+    box.appendChild(cv);
+    const row = el('div', 'row'); row.style.marginTop = '8px';
+    const auto = el('button', 'mini', '自動');
+    auto.onclick = () => { autoCal(c); drawCal(s); drawOverlay(); };
+    const lab = el('label', 'chk');
+    const ck = el('input'); ck.type = 'checkbox'; ck.checked = c.flip;
+    ck.onchange = () => { c.flip = ck.checked; drawCal(s); drawOverlay(); };
+    lab.appendChild(ck); lab.appendChild(document.createTextNode('左右反転'));
+    const fr = el('input'); fr.type = 'range'; fr.min = 0; fr.max = c.frames.length - 1;
+    fr.value = c.calFrame != null ? c.calFrame : c.marks.address;
+    fr.oninput = () => { c.calFrame = +fr.value; drawCal(s); };
+    row.appendChild(auto); row.appendChild(lab);
+    box.appendChild(row);
+    const row2 = el('div', 'row'); row2.style.marginTop = '6px';
+    row2.appendChild(el('span', 'meta', 'コマ'));
+    row2.appendChild(fr);
+    box.appendChild(row2);
+    box.appendChild(el('div', 'meta', '')).id = 'calmeta-' + s;
+    grid.appendChild(box);
+
+    cv.addEventListener('pointerdown', e => calDown(s, e));
+    cv.addEventListener('pointermove', e => calMove(s, e));
+    cv.addEventListener('pointerup', e => calUp(s, e));
+    cv.addEventListener('pointercancel', e => calUp(s, e));
+    drawCal(s);
+  });
+}
+let calDrag = null;
+function calDown(s, e) {
+  const c = CLIPS[s], cv = $('cal-' + s), p = canvasXY(cv, e);
+  const hy = c.cal.head * c.fh, gy = c.cal.ground * c.fh, cx = c.cal.cx * c.fw;
+  const near = Math.max(18, c.fh * 0.06);
+  const d = [
+    { k: 'head', v: Math.abs(p.y - hy) },
+    { k: 'ground', v: Math.abs(p.y - gy) },
+    { k: 'cx', v: Math.abs(p.x - cx) * 1.3 }
+  ].sort((a, b) => a.v - b.v)[0];
+  if (d.v > near) return;
+  calDrag = d.k;
+  cv.setPointerCapture(e.pointerId);
+  calMove(s, e);
+  e.preventDefault();
+}
+function calMove(s, e) {
+  if (!calDrag) return;
+  const c = CLIPS[s], cv = $('cal-' + s), p = canvasXY(cv, e);
+  if (calDrag === 'cx') c.cal.cx = clamp(p.x / c.fw, 0.02, 0.98);
+  else if (calDrag === 'head') c.cal.head = clamp(p.y / c.fh, 0, c.cal.ground - 0.08);
+  else c.cal.ground = clamp(p.y / c.fh, c.cal.head + 0.08, 1);
+  drawCal(s); drawOverlay();
+  e.preventDefault();
+}
+function calUp(s, e) { calDrag = null; }
+
+function drawCal(s) {
+  const c = CLIPS[s], cv = $('cal-' + s);
+  if (!cv || !c.ready) return;
+  if (cv.width !== c.fw) { cv.width = c.fw; cv.height = c.fh; }
+  const g = cv.getContext('2d');
+  const idx = clamp(c.calFrame != null ? c.calFrame : c.marks.address, 0, c.frames.length - 1);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, c.fw, c.fh);
+  g.drawImage(c.frames[idx], 0, 0, c.fw, c.fh);
+
+  const hy = c.cal.head * c.fh, gy = c.cal.ground * c.fh, cx = c.cal.cx * c.fw;
+  const col = s === 'A' ? '#4de0ff' : '#ff5cc8';
+  const lw = Math.max(2, c.fw / 300);
+  g.lineWidth = lw;
+  /* 縦（体の中心） */
+  g.strokeStyle = 'rgba(255,255,255,0.55)';
+  g.setLineDash([lw * 4, lw * 4]);
+  g.beginPath(); g.moveTo(cx, 0); g.lineTo(cx, c.fh); g.stroke();
+  g.setLineDash([]);
+  /* 横（頭 / 足元） */
+  g.strokeStyle = col;
+  [hy, gy].forEach(y => {
+    g.beginPath(); g.moveTo(0, y); g.lineTo(c.fw, y); g.stroke();
+  });
+  /* つまみ */
+  const knobX = c.fw * 0.86, r = Math.max(9, c.fw / 40);
+  g.fillStyle = col;
+  [hy, gy].forEach(y => {
+    g.beginPath(); g.arc(knobX, y, r, 0, 6.2832); g.fill();
+  });
+  g.beginPath(); g.arc(cx, c.fh * 0.5, r * 0.8, 0, 6.2832);
+  g.fillStyle = 'rgba(255,255,255,0.85)'; g.fill();
+  /* 身長の目盛り */
+  const bx = c.fw * 0.06;
+  g.strokeStyle = col; g.lineWidth = lw;
+  g.beginPath();
+  g.moveTo(bx, hy); g.lineTo(bx, gy);
+  g.moveTo(bx - r * 0.6, hy); g.lineTo(bx + r * 0.6, hy);
+  g.moveTo(bx - r * 0.6, gy); g.lineTo(bx + r * 0.6, gy);
+  g.stroke();
+  const fs = Math.max(12, Math.round(c.fw / 26));
+  g.font = '700 ' + fs + 'px -apple-system, sans-serif';
+  const txt = '身長 ' + Math.round(gy - hy) + ' px';
+  g.textBaseline = 'top';
+  const tw = g.measureText(txt).width;
+  g.fillStyle = 'rgba(0,0,0,0.55)';
+  g.fillRect(bx - r, hy - fs * 1.7, tw + fs * 0.7, fs * 1.45);
+  g.fillStyle = col;
+  g.fillText(txt, bx - r * 0.6, hy - fs * 1.55);
+
+  const m = $('calmeta-' + s);
+  if (m) {
+    m.innerHTML = '頭 ' + Math.round(hy) + ' / 足元 ' + Math.round(gy) +
+      '（身長 <b>' + Math.round(gy - hy) + ' px</b>）' +
+      (s === 'B' && A.ready && B.ready ? '　→ 倍率 <b>' + scaleBase().toFixed(2) + '×</b>' : '');
+  }
+}
+const bodyPx = c => (c.cal.ground - c.cal.head) * c.fh;
+const anchorOf = c => ({ x: c.cal.cx * c.fw, y: c.cal.ground * c.fh });
+const scaleBase = () => (bodyPx(B) > 1 ? bodyPx(A) / bodyPx(B) : 1);
+
+/* ---- 3. タイミング ---- */
+function buildTime() {
+  const grid = $('timeGrid');
+  grid.innerHTML = '';
+  SLOTS.forEach(s => {
+    const c = CLIPS[s];
+    if (!c.ready) return;
+    const box = el('div', 'tbox');
+    box.appendChild(el('div', 'ctag tag' + s, TAG[s]));
+    const pv = el('canvas', 'preview'); pv.id = 'tv-' + s; box.appendChild(pv);
+    const en = el('canvas', 'energy'); en.id = 'en-' + s; box.appendChild(en);
+
+    const sc = el('input'); sc.type = 'range'; sc.id = 'sc-' + s;
+    sc.min = 0; sc.max = c.frames.length - 1; sc.value = c.marks[KEYS[c.sel]];
+    sc.oninput = () => { setMark(c, KEYS[c.sel], +sc.value); c.cur = c.marks[KEYS[c.sel]]; sc.value = c.cur; drawTime(s); drawOverlay(); };
+    const row = el('div', 'row'); row.style.marginTop = '6px';
+    const bk = el('button', 'mini', '◀'); bk.onclick = () => stepMark(s, -1);
+    const fw2 = el('button', 'mini', '▶'); fw2.onclick = () => stepMark(s, 1);
+    row.appendChild(bk); row.appendChild(sc); row.appendChild(fw2);
+    box.appendChild(row);
+
+    const row2 = el('div', 'row'); row2.style.marginTop = '6px';
+    const au = el('button', 'mini', '自動検出');
+    au.onclick = () => { autoMarks(c); c.cur = c.marks[KEYS[c.sel]]; drawTime(s); drawOverlay(); toast(s + ' の節目を推定した。ずれていたら直す。'); };
+    row2.appendChild(au);
+    row2.appendChild(el('span', 'meta', '')).id = 'tmeta-' + s;
+    box.appendChild(row2);
+
+    const chips = el('div', 'chips'); chips.id = 'chips-' + s;
+    KEYS.forEach((k, i) => {
+      const b = el('button', 'chip');
+      b.dataset.k = k;
+      b.onclick = () => { c.sel = i; c.cur = c.marks[k]; drawTime(s); };
+      chips.appendChild(b);
+    });
+    box.appendChild(chips);
+    grid.appendChild(box);
+
+    en.addEventListener('pointerdown', e => enPointer(s, e));
+    en.addEventListener('pointermove', e => { if (e.buttons) enPointer(s, e); });
+    drawTime(s);
+  });
+}
+function stepMark(s, d) {
+  const c = CLIPS[s], k = KEYS[c.sel];
+  setMark(c, k, c.marks[k] + d);
+  c.cur = c.marks[k];
+  drawTime(s); drawOverlay();
+}
+function enPointer(s, e) {
+  const c = CLIPS[s], cv = $('en-' + s), p = canvasXY(cv, e);
+  const i = Math.round(p.x / cv.width * (c.frames.length - 1));
+  setMark(c, KEYS[c.sel], i);
+  c.cur = c.marks[KEYS[c.sel]];
+  drawTime(s); drawOverlay();
+  e.preventDefault();
+}
+function drawTime(s) {
+  const c = CLIPS[s];
+  const pv = $('tv-' + s), en = $('en-' + s), sc = $('sc-' + s);
+  if (!pv || !c.ready) return;
+  const idx = clamp(c.cur, 0, c.frames.length - 1);
+  if (pv.width !== c.fw) { pv.width = c.fw; pv.height = c.fh; }
+  const g = pv.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(c.frames[idx], 0, 0, c.fw, c.fh);
+  const fs = Math.max(13, Math.round(c.fw / 24));
+  const txt = KEY_JA[KEYS[c.sel]] + '　コマ ' + (idx + 1) + ' / ' + c.frames.length;
+  g.font = '700 ' + fs + 'px -apple-system, sans-serif';
+  g.textBaseline = 'top';
+  const tw = g.measureText(txt).width;
+  g.fillStyle = 'rgba(0,0,0,0.55)';
+  g.fillRect(0, 0, tw + fs, fs * 1.7);
+  g.fillStyle = '#fff';
+  g.fillText(txt, fs * 0.5, fs * 0.35);
+
+  /* 動きの大きさのグラフ */
+  const w = Math.max(240, Math.round(en.clientWidth || 320)) * 2, h = 108;
+  if (en.width !== w) { en.width = w; en.height = h; }
+  const q = en.getContext('2d');
+  q.clearRect(0, 0, w, h);
+  const n = c.energy.length;
+  let mx = 0;
+  for (let i = 0; i < n; i++) mx = Math.max(mx, c.energy[i]);
+  mx = mx || 1;
+  q.fillStyle = 'rgba(53,208,127,0.55)';
+  for (let i = 0; i < n; i++) {
+    const x = i / (n - 1) * (w - 4) + 2, bh = c.energy[i] / mx * (h - 14);
+    q.fillRect(x - 1.5, h - bh - 2, 3, bh);
+  }
+  const cols = { address: '#ffffff', top: '#ffd166', impact: '#ff5252', finish: '#7ab8ff' };
+  KEYS.forEach((k, i) => {
+    const x = c.marks[k] / (n - 1) * (w - 4) + 2;
+    q.strokeStyle = cols[k];
+    q.lineWidth = (i === c.sel) ? 4 : 2;
+    q.beginPath(); q.moveTo(x, 0); q.lineTo(x, h); q.stroke();
+  });
+
+  if (sc) { sc.max = c.frames.length - 1; sc.value = c.marks[KEYS[c.sel]]; }
+  const chips = $('chips-' + s);
+  if (chips) {
+    KEYS.forEach((k, i) => {
+      const b = chips.children[i];
+      b.className = 'chip' + (i === c.sel ? ' on' : '');
+      b.innerHTML = KEY_JA[k] + '<b>' + (c.marks[k] + 1) + '</b>';
+    });
+  }
+  const tm = $('tmeta-' + s);
+  if (tm) {
+    const back = (mk(c, 'top') - mk(c, 'address')), down = (mk(c, 'impact') - mk(c, 'top'));
+    tm.innerHTML = 'バックスイング <b>' + back.toFixed(2) + '秒</b>／ダウンスイング <b>' + down.toFixed(2) +
+      '秒</b>（比 <b>' + (down > 0 ? (back / down).toFixed(1) : '-') + ' : 1</b>）';
+  }
+}
+</script>
+
+<script>
+'use strict';
+/* =======================================================================
+   4. 重ね合わせ — 縮尺（身長の比）と時間（節目の比）で B を A に合わせる
+   ======================================================================= */
+const V = { u: 0, playing: false, zoom: 1, panX: 0, panY: 0, nudgeX: 0, nudgeY: 0, last: 0 };
+
+const alignMode = () => $('align').value;
+const layoutMode = () => $('layout').value;
+const refClip = () => CLIPS[$('ref').value] || A;
+const opacity = () => +$('opa').value / 100;
+const gainVal = () => +$('gain').value / 100;
+const scaleNow = () => scaleBase() * gainVal();
+
+/* 4 つの節目を 0=アドレス 1=トップ 2=インパクト 3=フィニッシュ の「位相」として扱う */
+function phaseOf(c, t) {
+  const m = KEYS.map(k => mk(c, k));
+  if (t <= m[0]) return 0;
+  for (let i = 0; i < 3; i++) {
+    if (t <= m[i + 1]) return i + (t - m[i]) / Math.max(1e-6, m[i + 1] - m[i]);
+  }
+  return 3;
+}
+function timeAtPhase(c, p) {
+  const m = KEYS.map(k => mk(c, k));
+  p = clamp(p, 0, 3);
+  const i = Math.min(2, Math.floor(p));
+  return m[i] + (m[i + 1] - m[i]) * (p - i);
+}
+function timesAt(u) {
+  const R = refClip(), m = alignMode();
+  if (m === 'none') {
+    const d = Math.max(dur(A), dur(B)) || 1;
+    return { A: A.times[0] + u * d, B: B.times[0] + u * d, p: null };
+  }
+  if (m === 'impact') {
+    const r0 = mk(R, 'address') - mk(R, 'impact'), r1 = mk(R, 'finish') - mk(R, 'impact');
+    const rel = r0 + (r1 - r0) * u;
+    return { A: mk(A, 'impact') + rel, B: mk(B, 'impact') + rel, p: null };
+  }
+  const t0 = mk(R, 'address'), t1 = mk(R, 'finish');
+  const p = phaseOf(R, t0 + u * (t1 - t0));
+  return { A: timeAtPhase(A, p), B: timeAtPhase(B, p), p: p };
+}
+function uForRefTime(t) {
+  const R = refClip(), m = alignMode();
+  if (m === 'none') { const d = Math.max(dur(A), dur(B)) || 1; return clamp((t - R.times[0]) / d, 0, 1); }
+  const t0 = mk(R, 'address'), t1 = mk(R, 'finish');
+  if (m === 'impact') {
+    const r0 = t0 - mk(R, 'impact'), r1 = t1 - mk(R, 'impact');
+    return clamp((t - mk(R, 'impact') - r0) / Math.max(1e-6, r1 - r0), 0, 1);
+  }
+  return clamp((t - t0) / Math.max(1e-6, t1 - t0), 0, 1);
+}
+function masterSeconds() {
+  const R = refClip();
+  if (alignMode() === 'none') return Math.max(dur(A), dur(B)) || 1;
+  return Math.max(0.2, mk(R, 'finish') - mk(R, 'address'));
+}
+function phaseLabel(p) {
+  if (p == null) return '';
+  const near = KEYS.map((k, i) => ({ k: k, d: Math.abs(p - i) })).sort((a, b) => a.d - b.d)[0];
+  if (near.d < 0.06) return KEY_JA[near.k];
+  if (p < 1) return 'バックスイング';
+  if (p < 2) return 'ダウンスイング';
+  return 'フォロー';
+}
+
+/* ---- 描画 ---- */
+function tintOf(c, img, color) {
+  if (!c.tintCan) c.tintCan = document.createElement('canvas');
+  const t = c.tintCan;
+  if (t.width !== c.fw || t.height !== c.fh) { t.width = c.fw; t.height = c.fh; }
+  const g = t.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = 'source-over';
+  g.clearRect(0, 0, c.fw, c.fh);
+  g.drawImage(img, 0, 0, c.fw, c.fh);
+  g.globalCompositeOperation = 'multiply';
+  g.fillStyle = color;
+  g.fillRect(0, 0, c.fw, c.fh);
+  g.globalCompositeOperation = 'source-over';
+  return t;
+}
+function viewOf(W, H) {
+  const k = V.zoom * Math.min(W / A.fw, H / A.fh);
+  return { k: k, tx: W / 2 - k * (A.fw / 2 - V.panX), ty: H / 2 - k * (A.fh / 2 - V.panY) };
+}
+function applyMatrix(g, c, isB, view) {
+  const s = isB ? scaleNow() : 1, mx = c.flip ? -1 : 1, a = anchorOf(c);
+  const d = isB ? { x: anchorOf(A).x + V.nudgeX, y: anchorOf(A).y + V.nudgeY } : a;
+  g.setTransform(view.k * s * mx, 0, 0, view.k * s,
+                 view.tx + view.k * (d.x - s * mx * a.x),
+                 view.ty + view.k * (d.y - s * a.y));
+}
+function drawScene(g, W, H, u, opt) {
+  opt = opt || {};
+  const t = timesAt(u);
+  const ia = indexAtTime(A, t.A), ib = indexAtTime(B, t.B);
+  const tint = $('tint').checked;
+  const srcA = tint ? tintOf(A, A.frames[ia], '#8ceaff') : A.frames[ia];
+  const srcB = tint ? tintOf(B, B.frames[ib], '#ffa3dc') : B.frames[ib];
+
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+
+  if (layoutMode() === 'side') {
+    const cw = W / 2;
+    [{ c: A, src: srcA, x: 0, col: '#4de0ff', lb: 'A' },
+     { c: B, src: srcB, x: cw, col: '#ff5cc8', lb: 'B' }].forEach(cell => {
+      g.save();
+      g.beginPath(); g.rect(cell.x, 0, cw, H); g.clip();
+      const k = (H * 0.62) / Math.max(1, bodyPx(cell.c)) * V.zoom;
+      const mx = cell.c.flip ? -1 : 1, a = anchorOf(cell.c);
+      const tx = cell.x + cw / 2 + V.panX, ty = H * 0.90 + V.panY;
+      g.setTransform(k * mx, 0, 0, k, tx - k * mx * a.x, ty - k * a.y);
+      g.drawImage(cell.src, 0, 0, cell.c.fw, cell.c.fh);
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      if (opt.guide !== false && $('guide').checked) {
+        g.strokeStyle = 'rgba(255,255,255,0.35)';
+        g.lineWidth = Math.max(1.5, W / 500);
+        g.beginPath(); g.moveTo(cell.x, ty); g.lineTo(cell.x + cw, ty); g.stroke();
+      }
+      label(g, cell.lb, cell.x + 10, 10, cell.col, W);
+      g.restore();
+    });
+    g.strokeStyle = 'rgba(255,255,255,0.25)'; g.lineWidth = Math.max(2, W / 400);
+    g.beginPath(); g.moveTo(W / 2, 0); g.lineTo(W / 2, H); g.stroke();
+  } else {
+    const view = viewOf(W, H);
+    applyMatrix(g, A, false, view);
+    g.drawImage(srcA, 0, 0, A.fw, A.fh);
+    g.globalCompositeOperation = $('blend').value;
+    g.globalAlpha = opacity();
+    applyMatrix(g, B, true, view);
+    g.drawImage(srcB, 0, 0, B.fw, B.fh);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+    if (opt.guide !== false && $('guide').checked) {
+      const a = anchorOf(A);
+      const gy = view.ty + view.k * a.y, hy = view.ty + view.k * (A.cal.head * A.fh);
+      const gx = view.tx + view.k * a.x;
+      g.lineWidth = Math.max(1.5, W / 500);
+      g.strokeStyle = 'rgba(53,208,127,0.6)';
+      g.beginPath(); g.moveTo(0, gy); g.lineTo(W, gy); g.stroke();
+      g.strokeStyle = 'rgba(53,208,127,0.35)';
+      g.beginPath(); g.moveTo(0, hy); g.lineTo(W, hy); g.stroke();
+      g.setLineDash([6, 6]);
+      g.strokeStyle = 'rgba(255,255,255,0.35)';
+      g.beginPath(); g.moveTo(gx, 0); g.lineTo(gx, H); g.stroke();
+      g.setLineDash([]);
+    }
+  }
+  if (opt.hud !== false && $('hud').checked) {
+    const s = 'A ' + (ia + 1) + ' / B ' + (ib + 1) + (t.p != null ? '　' + phaseLabel(t.p) : '');
+    /* 横並びの時は左上に A/B の札があるので、コマ番号は下に置く */
+    const y = layoutMode() === 'side' ? H - Math.max(14, Math.round(W / 42)) * 1.4 - 10 : 10;
+    label(g, s, 10, y, '#ffffff', W);
+  }
+  if (opt.caption) label(g, opt.caption, 10, H - Math.max(18, W / 34) - 16, '#d9ffe9', W);
+  return { ia: ia, ib: ib, p: t.p };
+}
+function label(g, text, x, y, col, W) {
+  const fs = Math.max(14, Math.round(W / 42));
+  g.font = '700 ' + fs + 'px -apple-system, sans-serif';
+  g.textBaseline = 'top';
+  const tw = g.measureText(text).width;
+  g.fillStyle = 'rgba(0,0,0,0.5)';
+  g.fillRect(x - 6, y - 4, tw + 12, fs * 1.4);
+  g.fillStyle = col;
+  g.fillText(text, x, y);
+}
+function drawOverlay() {
+  if (!(A.ready && B.ready)) return;
+  const cv = $('ov');
+  const side = layoutMode() === 'side';
+  const baseW = side ? A.fw * 2 : A.fw;
+  const mul = clamp(Math.round(1000 / baseW), 1, 3);      /* 文字と線をくっきり描くための倍率 */
+  const wantW = Math.min(1600, baseW * mul), wantH = A.fh * mul;
+  if (cv.width !== wantW || cv.height !== wantH) { cv.width = wantW; cv.height = wantH; }
+  drawScene(cv.getContext('2d'), cv.width, cv.height, V.u);
+  const t = timesAt(V.u);
+  $('posmeta').innerHTML =
+    (t.p != null ? '位置 <b>' + phaseLabel(t.p) + '</b>　' : '') +
+    'A <b>' + (t.A).toFixed(2) + '秒</b>／B <b>' + (t.B).toFixed(2) + '秒</b>' +
+    '　倍率 <b>' + scaleNow().toFixed(2) + '×</b>';
+  $('scrub').value = Math.round(V.u * 1000);
+}
+
+/* ---- 再生 ---- */
+function tick(ts) {
+  if (!V.playing) return;
+  if (!V.last) V.last = ts;
+  const dt = Math.min(0.25, (ts - V.last) / 1000);
+  V.last = ts;
+  V.u += dt * (+$('speed').value) / masterSeconds();
+  if (V.u >= 1) {
+    if ($('loop').checked) V.u -= 1;
+    else { V.u = 1; setPlaying(false); }
+  }
+  drawOverlay();
+  if (V.playing) requestAnimationFrame(tick);
+}
+function setPlaying(on) {
+  V.playing = on;
+  V.last = 0;
+  $('play').textContent = on ? '❙❙ 停止' : '▶ 再生';
+  if (on) requestAnimationFrame(tick);
+}
+function stepFrame(d) {
+  const R = refClip();
+  const t0 = alignMode() === 'none' ? R.times[0] : mk(R, 'address');
+  const t1 = alignMode() === 'none' ? R.times[R.times.length - 1] : mk(R, 'finish');
+  const nf = Math.max(1, indexAtTime(R, t1) - indexAtTime(R, t0));
+  V.u = clamp(V.u + d / nf, 0, 1);
+  drawOverlay();
+}
+
+/* ---- 画面の指操作 ---- */
+function bindStage() {
+  const cv = $('ov');
+  const pts = new Map();
+  let base = null;
+  const info = () => {
+    const p = [...pts.values()];
+    const dx = p[1].x - p[0].x, dy = p[1].y - p[0].y;
+    return { d: Math.hypot(dx, dy) || 1, cx: (p[0].x + p[1].x) / 2, cy: (p[0].y + p[1].y) / 2 };
+  };
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, canvasXY(cv, e));
+    if (pts.size === 2) base = { i: info(), zoom: V.zoom, panX: V.panX, panY: V.panY };
+    e.preventDefault();
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    const prev = pts.get(e.pointerId);
+    const now = canvasXY(cv, e);
+    pts.set(e.pointerId, now);
+    if (pts.size >= 2 && base) {
+      const i = info(), view = viewOf(cv.width, cv.height);
+      V.zoom = clamp(base.zoom * (i.d / base.i.d), 1, 4);
+      V.panX = base.panX + (i.cx - base.i.cx) / view.k;
+      V.panY = base.panY + (i.cy - base.i.cy) / view.k;
+      $('zoom').value = Math.round(V.zoom * 100);
+      $('zoomV').textContent = V.zoom.toFixed(1) + '×';
+    } else if (pts.size === 1) {
+      const view = viewOf(cv.width, cv.height);
+      if (layoutMode() === 'side') { V.panX += now.x - prev.x; V.panY += now.y - prev.y; }
+      else { V.nudgeX += (now.x - prev.x) / view.k; V.nudgeY += (now.y - prev.y) / view.k; }
+    }
+    drawOverlay();
+    e.preventDefault();
+  });
+  const up = e => { pts.delete(e.pointerId); if (pts.size < 2) base = null; };
+  cv.addEventListener('pointerup', up);
+  cv.addEventListener('pointercancel', up);
+}
+
+/* ---- 画像の保存 ---- */
+function stamp() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+}
+function saveCanvas(cv, name) {
+  const done = url => {
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    toast('画像を保存した（「ファイル」アプリ / ダウンロードに入る）');
+    setTimeout(() => { if (url.indexOf('blob:') === 0) URL.revokeObjectURL(url); }, 8000);
+  };
+  if (cv.toBlob) cv.toBlob(b => done(URL.createObjectURL(b)), 'image/png');
+  else done(cv.toDataURL('image/png'));
+}
+function saveGrid() {
+  const W = A.fw, H = A.fh;
+  const cell = document.createElement('canvas'); cell.width = W; cell.height = H;
+  const cg = cell.getContext('2d');
+  const out = document.createElement('canvas'); out.width = W * 2; out.height = H * 2;
+  const og = out.getContext('2d');
+  og.fillStyle = '#000'; og.fillRect(0, 0, out.width, out.height);
+  const R = refClip();
+  for (let i = 0; i < 4; i++) {
+    const u = uForRefTime(timeAtPhase(R, i));
+    drawScene(cg, W, H, u, { hud: false, caption: KEY_JA[KEYS[i]] });
+    og.drawImage(cell, (i % 2) * W, Math.floor(i / 2) * H);
+  }
+  og.strokeStyle = 'rgba(255,255,255,0.3)'; og.lineWidth = 2;
+  og.beginPath();
+  og.moveTo(W, 0); og.lineTo(W, H * 2); og.moveTo(0, H); og.lineTo(W * 2, H);
+  og.stroke();
+  saveCanvas(out, 'swing-4up-' + stamp() + '.png');
+}
+
+/* =======================================================================
+   まとめ役 — 読み込み後の画面切り替え・設定の保存
+   ======================================================================= */
+function afterIngest(slot) {
+  buildCal();
+  buildTime();
+  $('sec-cal').hidden = !(A.ready || B.ready);
+  $('sec-time').hidden = !(A.ready || B.ready);
+  const both = A.ready && B.ready;
+  $('sec-ov').hidden = !both;
+  if (both) {
+    V.u = 0; V.nudgeX = 0; V.nudgeY = 0; V.panX = 0; V.panY = 0;
+    drawOverlay();
+    $('sec-ov').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    toast('重ね合わせの準備ができた。ずれていたら 2 と 3 を直す。');
+  } else {
+    toast(slot + ' を読み込んだ。もう 1 本を選ぶ。');
+  }
+}
+
+const SET_IDS = ['quality', 'align', 'ref', 'layout', 'blend', 'speed', 'opa', 'gain', 'zoom',
+                 'tint', 'guide', 'loop', 'hud'];
+function saveSettings() {
+  const o = {};
+  SET_IDS.forEach(id => {
+    const e = $(id);
+    o[id] = (e.type === 'checkbox') ? e.checked : e.value;
+  });
+  try { localStorage.setItem(LS_SET, JSON.stringify(o)); } catch (e) {}
+}
+function restoreSettings() {
+  let o = null;
+  try { o = JSON.parse(localStorage.getItem(LS_SET) || 'null'); } catch (e) {}
+  if (o) {
+    SET_IDS.forEach(id => {
+      if (!(id in o)) return;
+      const e = $(id);
+      if (e.type === 'checkbox') e.checked = !!o[id]; else e.value = o[id];
+    });
+  }
+  syncLabels();
+}
+function syncLabels() {
+  $('opaV').textContent = $('opa').value + '%';
+  $('gainV').textContent = (+$('gain').value / 100).toFixed(2) + '×';
+  $('zoomV').textContent = (+$('zoom').value / 100).toFixed(1) + '×';
+  V.zoom = +$('zoom').value / 100;
+}
+
+function bindUI() {
+  SLOTS.forEach(s => {
+    $('file-' + s).addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0];
+      if (f) ingest(s, f);
+      e.target.value = '';
+    });
+  });
+  $('play').onclick = () => setPlaying(!V.playing);
+  $('scrub').oninput = () => { V.u = +$('scrub').value / 1000; drawOverlay(); };
+  $('scrub').onpointerdown = () => setPlaying(false);
+  $('stepB').onclick = () => { setPlaying(false); stepFrame(-1); };
+  $('stepF').onclick = () => { setPlaying(false); stepFrame(1); };
+  ['align', 'ref', 'layout', 'blend', 'tint', 'guide', 'hud'].forEach(id => {
+    $(id).addEventListener('change', () => { drawOverlay(); saveSettings(); });
+  });
+  ['speed', 'loop', 'quality'].forEach(id => $(id).addEventListener('change', saveSettings));
+  ['opa', 'gain'].forEach(id => $(id).addEventListener('input', () => { syncLabels(); drawOverlay(); saveSettings(); }));
+  $('zoom').addEventListener('input', () => { syncLabels(); drawOverlay(); saveSettings(); });
+  $('resetPos').onclick = () => {
+    V.nudgeX = 0; V.nudgeY = 0; V.panX = 0; V.panY = 0; V.zoom = 1;
+    $('zoom').value = 100; $('gain').value = 100;
+    syncLabels(); drawOverlay(); saveSettings();
+  };
+  $('savePng').onclick = () => {
+    const cv = $('ov');
+    const out = document.createElement('canvas');
+    out.width = cv.width; out.height = cv.height;   /* 画面と同じ見え方で保存する */
+    drawScene(out.getContext('2d'), out.width, out.height, V.u);
+    saveCanvas(out, 'swing-overlay-' + stamp() + '.png');
+  };
+  $('saveGrid').onclick = saveGrid;
+  bindStage();
+  window.addEventListener('resize', () => { SLOTS.forEach(s => { if (CLIPS[s].ready) drawTime(s); }); });
+  window.addEventListener('pagehide', saveSettings);
+}
+</script>
+
+<script>
+'use strict';
+/* =======================================================================
+   通信 / キャッシュ状態バッジ と service worker（他 2 つのアプリと同じ作り）
+   ======================================================================= */
+const LS_HINT = 'swingOverlay.a2hs';
+const SW_OK = ('serviceWorker' in navigator) && location.protocol !== 'file:';
+
+function updNetBadge() {
+  const el = $('netstate');
+  if (!el) return;
+  const controlled = SW_OK && !!navigator.serviceWorker.controller;
+  if (!navigator.onLine) {
+    el.textContent = 'OFFLINE';
+    el.className = 'badge offline';
+    el.title = controlled ? 'オフラインで動作中（キャッシュから起動）'
+                          : 'オフラインです（キャッシュ未完了の可能性があります）';
+  } else if (controlled) {
+    el.textContent = 'OFFLINE OK';
+    el.className = 'badge ready';
+    el.title = 'キャッシュ済み — ホーム画面から Wi-Fi 無しで起動できます';
+  } else if (SW_OK) {
+    el.textContent = 'CACHE …';
+    el.className = 'badge wait';
+    el.title = 'オフライン用のキャッシュを準備しています';
+  } else {
+    el.textContent = 'LOCAL';
+    el.className = 'badge';
+    el.title = 'Service Worker が使えません（file:// で開いている、または非対応）';
+  }
+}
+window.addEventListener('online', updNetBadge);
+window.addEventListener('offline', updNetBadge);
+
+function isStandalone() {
+  return navigator.standalone === true ||
+         (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+}
+function a2hsHint() {
+  if (isStandalone()) return;
+  try { if (localStorage.getItem(LS_HINT)) return; } catch (e) { return; }
+  toast('オフラインで使うには 共有 → 「ホーム画面に追加」', {
+    label: 'OK', ms: 12000,
+    action: () => { try { localStorage.setItem(LS_HINT, '1'); } catch (e) {} }
+  });
+}
+if (SW_OK) {
+  /* 自分の sw.js が既に制御していた場合だけ「更新による交代」と見なす */
+  const OWN_SW = new URL('sw.js', location.href).href;
+  const prevCtrl = navigator.serviceWorker.controller;
+  const hadOwnController = !!prevCtrl && prevCtrl.scriptURL === OWN_SW;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    updNetBadge();
+    /* 動画を展開した後に勝手に消えないよう、作業中はリロードしない */
+    const working = A.ready || B.ready;
+    if (hadOwnController && !reloading && !working) { reloading = true; saveSettings(); location.reload(); }
+    else if (!hadOwnController) setTimeout(a2hsHint, 1200);
+  });
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js', { scope: './' }).then(reg => {
+      const offerUpdate = sw => toast('新しいバージョンがあります', {
+        label: '更新', ms: 0,
+        action: () => { saveSettings(); sw.postMessage({ type: 'SKIP_WAITING' }); }
+      });
+      if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
+      reg.addEventListener('updatefound', () => {
+        const sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener('statechange', () => {
+          if (sw.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(sw);
+        });
+      });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && navigator.onLine) reg.update().catch(() => {});
+      });
+      updNetBadge();
+      if (navigator.serviceWorker.controller) setTimeout(a2hsHint, 1500);
+    }).catch(err => {
+      console.warn('Service Worker を登録できませんでした', err);
+      updNetBadge();
+    });
+  });
+}
+
+/* ---- 起動 ---- */
+restoreSettings();
+bindUI();
+updNetBadge();
+</script>
+</body>
+</html>

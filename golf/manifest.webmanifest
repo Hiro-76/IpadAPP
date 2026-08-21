@@ -1,0 +1,18 @@
+{
+  "name": "SWING OVERLAY",
+  "short_name": "SWING",
+  "description": "2 つのゴルフスイング動画を、体の大きさとスイングの速さをそろえて重ねて見るツール（オフライン動作）",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0d2a1c",
+  "theme_color": "#0d2a1c",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}
