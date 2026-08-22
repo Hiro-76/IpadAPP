@@ -364,7 +364,13 @@
       <button class="mini" id="resetPos">位置をリセット</button>
       <button class="mini" id="savePng">この重ね画像を保存</button>
       <button class="mini" id="saveGrid">4 コマ比較を保存</button>
+      <button class="mini prim" id="saveVid">重ね動画を保存</button>
+      <button class="mini" id="saveGif">GIF で保存</button>
     </div>
+    <p class="note" style="margin:10px 0 0" id="vidNote">
+      動画はいまの<b>再生速度</b>・<b>表示設定</b>のまま、アドレスからフィニッシュまでを 1 回分録る
+      （録画中は画面がそのまま流れる）。GIF は端末を選ばず作れて、そのまま送れる。
+    </p>
   </section>
 
   <footer>
@@ -1286,16 +1292,21 @@ function stamp() {
   const d = new Date(), p = n => String(n).padStart(2, '0');
   return p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
 }
+function saveUrl(url, name, what) {
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  toast((what || 'ファイル') + 'を保存した（「ファイル」アプリ / ダウンロードに入る）: ' + name);
+  setTimeout(() => { if (url.indexOf('blob:') === 0) URL.revokeObjectURL(url); }, 30000);
+}
+function saveBlob(blob, name) {
+  const mb = blob.size / 1048576;
+  const what = /\.gif$/.test(name) ? 'GIF' : (/\.(mp4|webm)$/.test(name) ? '動画' : '画像');
+  saveUrl(URL.createObjectURL(blob), name, what + '（' + (mb < 1 ? Math.round(blob.size / 1024) + ' KB' : mb.toFixed(1) + ' MB') + '）');
+}
 function saveCanvas(cv, name) {
-  const done = url => {
-    const a = document.createElement('a');
-    a.href = url; a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    toast('画像を保存した（「ファイル」アプリ / ダウンロードに入る）');
-    setTimeout(() => { if (url.indexOf('blob:') === 0) URL.revokeObjectURL(url); }, 8000);
-  };
-  if (cv.toBlob) cv.toBlob(b => done(URL.createObjectURL(b)), 'image/png');
-  else done(cv.toDataURL('image/png'));
+  if (cv.toBlob) cv.toBlob(b => saveBlob(b, name), 'image/png');
+  else saveUrl(cv.toDataURL('image/png'), name, '画像');
 }
 function saveGrid() {
   const W = A.fw, H = A.fh;
@@ -1402,6 +1413,293 @@ function bindUI() {
   bindKeys();
   window.addEventListener('resize', () => { SLOTS.forEach(s => { if (CLIPS[s].ready) drawTime(s); }); });
   window.addEventListener('pagehide', saveSettings);
+}
+</script>
+
+<script>
+'use strict';
+/* =======================================================================
+   重ねた「動画」の書き出し
+   ・MediaRecorder が使える端末 … 画面をそのまま録って MP4 / WebM で保存
+   ・使えない / 失敗する端末 … アニメ GIF を自前で組み立てて保存（外部部品なし）
+   ======================================================================= */
+let EXPORTING = null;          /* 'vid' | 'gif' | null */
+let EXPORT_CANCEL = false;
+
+function pickMime() {
+  if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return null;
+  const list = ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9',
+                'video/webm;codecs=vp8', 'video/webm'];
+  for (const m of list) { if (MediaRecorder.isTypeSupported(m)) return m; }
+  return null;
+}
+function canRecord() {
+  return !!(window.MediaRecorder && $('ov').captureStream && pickMime());
+}
+function busyBtn(btn, text) { btn.textContent = text; }
+
+/* アドレス → フィニッシュを 1 回だけ、いまの再生速度で流す */
+function playOnce(onProg) {
+  return new Promise(res => {
+    setPlaying(false);
+    V.u = 0;
+    drawOverlay();
+    const speed = +$('speed').value;
+    let last = 0;
+    const step = ts => {
+      if (EXPORT_CANCEL) { res(); return; }
+      if (!last) last = ts;
+      const dt = Math.min(0.1, (ts - last) / 1000);
+      last = ts;
+      V.u = Math.min(1, V.u + dt * speed / masterSeconds());
+      drawOverlay();
+      if (onProg) onProg(V.u);
+      if (V.u >= 1) { res(); return; }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+async function recordOverlay() {
+  const btn = $('saveVid');
+  if (EXPORTING === 'vid') { EXPORT_CANCEL = true; return; }      /* もう一度押すと中止 */
+  if (EXPORTING) { toast('いま書き出し中'); return; }
+  if (!canRecord()) {
+    toast('この端末では画面の録画ができない。GIF で保存する。', { label: 'GIF', action: exportGif });
+    return;
+  }
+  EXPORTING = 'vid'; EXPORT_CANCEL = false;
+  const cv = $('ov'), type = pickMime();
+  let stream = null, rec = null;
+  try {
+    stream = cv.captureStream(30);
+    rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 8000000 });
+  } catch (e) {
+    EXPORTING = null;
+    toast('録画を始められなかった。GIF で保存する。', { label: 'GIF', action: exportGif });
+    return;
+  }
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(r => { rec.onstop = r; });
+  try {
+    rec.start(200);
+    await playOnce(u => busyBtn(btn, '録画中… ' + Math.round(u * 100) + '%（押すと中止）'));
+    await new Promise(r => setTimeout(r, 250));       /* 最後のコマを入れる */
+    rec.stop();
+    await stopped;
+    stream.getTracks().forEach(t => t.stop());
+    const blob = new Blob(chunks, { type: type });
+    if (EXPORT_CANCEL) { toast('録画を中止した'); }
+    else if (blob.size < 8192) {
+      toast('録画が空だった（この端末は canvas の録画に対応していない）。GIF で保存する。',
+            { label: 'GIF', ms: 9000, action: exportGif });
+    } else {
+      const ext = type.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
+      saveBlob(blob, 'swing-overlay-' + stamp() + '.' + ext);
+    }
+  } catch (e) {
+    console.warn(e);
+    toast('録画に失敗した。GIF で保存する。', { label: 'GIF', action: exportGif });
+  } finally {
+    EXPORTING = null; EXPORT_CANCEL = false;
+    busyBtn(btn, vidLabel());
+  }
+}
+
+/* =======================================================================
+   アニメ GIF を組み立てる
+   ・全コマから色を拾って 255 色の共通パレットを作る（メディアンカット）
+   ・動かなかった画素は透明にして前のコマを透かす（撮影が固定なら大幅に軽くなる）
+   ======================================================================= */
+function medianCut(px, want) {
+  const span = b => {
+    let lo = [255, 255, 255], hi = [0, 0, 0];
+    for (let i = b.lo; i < b.hi; i++) {
+      const p = px[i];
+      for (let c = 0; c < 3; c++) { if (p[c] < lo[c]) lo[c] = p[c]; if (p[c] > hi[c]) hi[c] = p[c]; }
+    }
+    let ch = 0, best = -1;
+    for (let c = 0; c < 3; c++) { const d = hi[c] - lo[c]; if (d > best) { best = d; ch = c; } }
+    b.ch = ch; b.span = best;
+    return b;
+  };
+  const boxes = [span({ lo: 0, hi: px.length })];
+  while (boxes.length < want) {
+    let bi = -1, best = 0;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (b.hi - b.lo > 1 && b.span > best) { best = b.span; bi = i; }
+    }
+    if (bi < 0) break;
+    const b = boxes[bi], ch = b.ch;
+    const sub = px.slice(b.lo, b.hi).sort((x, y) => x[ch] - y[ch]);
+    for (let i = 0; i < sub.length; i++) px[b.lo + i] = sub[i];
+    const mid = b.lo + ((b.hi - b.lo) >> 1);
+    boxes.splice(bi, 1, span({ lo: b.lo, hi: mid }), span({ lo: mid, hi: b.hi }));
+  }
+  const pal = new Uint8Array(boxes.length * 3);
+  boxes.forEach((b, i) => {
+    let r = 0, g = 0, bl = 0;
+    for (let j = b.lo; j < b.hi; j++) { r += px[j][0]; g += px[j][1]; bl += px[j][2]; }
+    const n = Math.max(1, b.hi - b.lo);
+    pal[i * 3] = Math.round(r / n); pal[i * 3 + 1] = Math.round(g / n); pal[i * 3 + 2] = Math.round(bl / n);
+  });
+  return pal;
+}
+/* 32768 個のバケツごとに一番近いパレット番号を先に求めておく（画素ごとの総当たりを避ける） */
+function paletteLUT(pal) {
+  const n = pal.length / 3, lut = new Uint8Array(32768);
+  for (let i = 0; i < 32768; i++) {
+    const r = ((i >> 10) & 31) << 3, g = ((i >> 5) & 31) << 3, b = (i & 31) << 3;
+    let best = 0, bd = 1e9;
+    for (let k = 0; k < n; k++) {
+      const dr = r - pal[k * 3], dg = g - pal[k * 3 + 1], db = b - pal[k * 3 + 2];
+      const d = dr * dr + dg * dg + db * db;
+      if (d < bd) { bd = d; best = k; }
+    }
+    lut[i] = best;
+  }
+  return lut;
+}
+function lzwEncode(minCode, px) {
+  const clear = 1 << minCode, eoi = clear + 1;
+  let size = minCode + 1, next = eoi + 1;
+  let dict = new Map();
+  const out = [];
+  let cur = 0, nbit = 0;
+  const emit = code => {
+    cur |= code << nbit; nbit += size;
+    while (nbit >= 8) { out.push(cur & 255); cur >>= 8; nbit -= 8; }
+  };
+  emit(clear);
+  let prev = px[0];
+  for (let i = 1; i < px.length; i++) {
+    const k = px[i], key = prev * 4096 + k;
+    const got = dict.get(key);
+    if (got !== undefined) { prev = got; continue; }
+    emit(prev);
+    if (next === 4096) { emit(clear); dict = new Map(); next = eoi + 1; size = minCode + 1; }
+    else { if (next >= (1 << size)) size++; dict.set(key, next++); }
+    prev = k;
+  }
+  emit(prev);
+  emit(eoi);
+  if (nbit > 0) out.push(cur & 255);
+  return out;
+}
+function subBlocks(bytes) {
+  const out = [];
+  for (let i = 0; i < bytes.length; i += 255) {
+    const part = bytes.slice(i, i + 255);
+    out.push(part.length);
+    for (const b of part) out.push(b);
+  }
+  out.push(0);
+  return new Uint8Array(out);
+}
+const u16 = v => [v & 255, (v >> 8) & 255];
+
+async function exportGif() {
+  const btn = $('saveGif');
+  if (EXPORTING === 'gif') { EXPORT_CANCEL = true; return; }      /* もう一度押すと中止 */
+  if (EXPORTING) { toast('いま書き出し中'); return; }
+  if (!(A.ready && B.ready)) return;
+  EXPORTING = 'gif'; EXPORT_CANCEL = false;
+  const wasU = V.u;
+  try {
+    /* 大きさとコマ数（送りやすい大きさに収める） */
+    const src = $('ov');
+    const long = Math.min(360, Math.max(src.width, src.height));
+    const k = long / Math.max(src.width, src.height);
+    const W = Math.max(2, Math.round(src.width * k / 2) * 2);
+    const H = Math.max(2, Math.round(src.height * k / 2) * 2);
+    const speed = +$('speed').value;
+    const N = clamp(Math.round(masterSeconds() * 20), 12, 90);
+    const delay = clamp(Math.round(masterSeconds() / N / speed * 100), 2, 200);
+
+    const can = document.createElement('canvas');
+    can.width = W; can.height = H;
+    const g = can.getContext('2d', { willReadFrequently: true });
+    const frame = i => {
+      drawScene(g, W, H, i / (N - 1));
+      return g.getImageData(0, 0, W, H).data;
+    };
+
+    /* 1) 色を拾う */
+    busyBtn(btn, '色を調べている…');
+    await raf();
+    const samples = [];
+    const stepF = Math.max(1, Math.floor(N / 6));
+    for (let i = 0; i < N; i += stepF) {
+      const d = frame(i);
+      for (let p = 0; p < d.length; p += 4 * 11) samples.push([d[p], d[p + 1], d[p + 2]]);
+      await raf();
+      if (EXPORT_CANCEL) throw new Error('cancel');
+    }
+    const pal = medianCut(samples, 255);
+    const lut = paletteLUT(pal);
+    const trans = 255;                       /* 255 番は透明（動かなかった画素）用 */
+
+    /* 2) GIF を組み立てる */
+    const parts = [];
+    const head = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61].concat(u16(W), u16(H), [0xF7, 0, 0]);
+    parts.push(new Uint8Array(head));
+    const table = new Uint8Array(256 * 3);
+    table.set(pal);
+    parts.push(table);
+    parts.push(new Uint8Array([0x21, 0xFF, 0x0B, 0x4E, 0x45, 0x54, 0x53, 0x43, 0x41, 0x50, 0x45,
+                               0x32, 0x2E, 0x30, 0x03, 0x01, 0, 0, 0]));   /* 無限にくり返す */
+    const cnt = W * H;
+    let prevIdx = null;
+    for (let i = 0; i < N; i++) {
+      const d = frame(i);
+      const idx = new Uint8Array(cnt);
+      for (let p = 0, q = 0; q < cnt; p += 4, q++) {
+        idx[q] = lut[((d[p] >> 3) << 10) | ((d[p + 1] >> 3) << 5) | (d[p + 2] >> 3)];
+      }
+      const out = new Uint8Array(cnt);
+      if (prevIdx) {
+        for (let q = 0; q < cnt; q++) out[q] = (idx[q] === prevIdx[q]) ? trans : idx[q];
+      } else {
+        out.set(idx);
+      }
+      parts.push(new Uint8Array([0x21, 0xF9, 0x04, 0x05].concat(u16(delay), [trans, 0])));
+      parts.push(new Uint8Array([0x2C].concat(u16(0), u16(0), u16(W), u16(H), [0])));
+      parts.push(new Uint8Array([8]));
+      parts.push(subBlocks(lzwEncode(8, out)));
+      prevIdx = idx;
+      busyBtn(btn, 'GIF を作成中… ' + Math.round((i + 1) / N * 100) + '%（押すと中止）');
+      await raf();
+      if (EXPORT_CANCEL) throw new Error('cancel');
+    }
+    parts.push(new Uint8Array([0x3B]));
+    const blob = new Blob(parts, { type: 'image/gif' });
+    saveBlob(blob, 'swing-overlay-' + stamp() + '.gif');
+  } catch (e) {
+    if (String(e).indexOf('cancel') >= 0) toast('GIF の作成を中止した');
+    else { console.warn(e); toast('GIF を作れなかった'); }
+  } finally {
+    EXPORTING = null; EXPORT_CANCEL = false;
+    busyBtn(btn, 'GIF で保存');
+    V.u = wasU;
+    drawOverlay();
+  }
+}
+
+function vidLabel() {
+  const m = pickMime();
+  if (!canRecord()) return '重ね動画を保存（非対応）';
+  return '重ね動画を保存（' + (m.indexOf('mp4') >= 0 ? 'MP4' : 'WebM') + '）';
+}
+$('saveVid').addEventListener('click', recordOverlay);
+$('saveGif').addEventListener('click', exportGif);
+$('saveVid').textContent = vidLabel();
+if (!canRecord()) {
+  $('saveVid').disabled = true;
+  $('vidNote').innerHTML = 'この端末は画面の録画に対応していないので、<b>GIF で保存</b>を使う。' +
+    'GIF はいまの再生速度・表示設定のまま、アドレスからフィニッシュまでを 1 回分書き出す。';
 }
 </script>
 
