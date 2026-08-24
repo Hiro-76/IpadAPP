@@ -14,7 +14,11 @@ object AtisScheduler {
     private const val REQUEST_ALARM = 100
     private const val REQUEST_SHOW = 101
 
-    fun reschedule(context: Context): Long? {
+    /**
+     * [notBefore] guards against re-arming the slot that has just fired: an alarm may arrive a few
+     * milliseconds early, and without the slack the next trigger would land on the same slot again.
+     */
+    fun reschedule(context: Context, notBefore: Long = System.currentTimeMillis()): Long? {
         val app = context.applicationContext
         val alarms = app.getSystemService(AlarmManager::class.java) ?: return null
         val trigger = alarmPendingIntent(app)
@@ -23,7 +27,7 @@ object AtisScheduler {
         val config = ConfigStore.current(app)
         if (!config.enabled || !config.hasFeed) return null
 
-        val at = nextRunAt(app) ?: return null
+        val at = nextRunAt(app, notBefore) ?: return null
         when {
             // An alarm-clock alarm is the one kind Doze never delays, and it needs no extra
             // permission on Android 12+. The cost is the alarm icon in the status bar.
@@ -45,10 +49,10 @@ object AtisScheduler {
     }
 
     /** When the next capture is due, whether or not an alarm is currently armed. */
-    fun nextRunAt(context: Context): Long? {
+    fun nextRunAt(context: Context, notBefore: Long = System.currentTimeMillis()): Long? {
         val config = ConfigStore.current(context)
         return Schedule.nextTrigger(
-            nowMillis = System.currentTimeMillis(),
+            nowMillis = notBefore,
             minuteOfHour = config.minuteOfHour,
             secondOffset = config.secondOffset,
             intervalMinutes = config.intervalMinutes,

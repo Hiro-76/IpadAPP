@@ -19,7 +19,8 @@ class AlarmReceiver : BroadcastReceiver() {
             Log.w("AtisGrabber", "foreground service refused, falling back to WorkManager", error)
             CaptureWorker.enqueue(app)
         }
-        AtisScheduler.reschedule(app)
+        // Skip the slot that just fired, even if the alarm arrived a hair early.
+        AtisScheduler.reschedule(app, System.currentTimeMillis() + 5_000L)
     }
 
     companion object {
