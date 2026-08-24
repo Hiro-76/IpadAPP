@@ -1,1 +1,5 @@
 vendor/* linguist-vendored
+
+# Windows で動かすスクリプトは CRLF で置く
+*.bat text eol=crlf
+*.ps1 text eol=crlf
