@@ -5,6 +5,10 @@
     .\setup.ps1 -Model medium   取っておくモデルを変える
     .\setup.ps1 -NoModel        モデルは後回し（初回起動時に取りに行く）
     .\setup.ps1 -Gpu            NVIDIA GPU 用のライブラリも入れる
+    .\setup.ps1 -Local          このフォルダの中に .venv を作る（既定は下記の短い場所）
+
+  部品は %LOCALAPPDATA%\MojiOkoshi\venv に入れる。Windows のパスは 260 文字で
+  頭打ちになるので、深い場所に展開されても届かなくならないようにするため。
 
   このファイルは BOM 付き UTF-8 で保存すること。Windows PowerShell 5.1 は
   BOM が無いと Shift-JIS として読むため、日本語の行で構文が壊れる。
@@ -12,7 +16,8 @@
 param(
   [string]$Model = "small",
   [switch]$NoModel,
-  [switch]$Gpu
+  [switch]$Gpu,
+  [switch]$Local
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,15 +57,30 @@ if (-not $python) {
 }
 Write-Host ("Python " + $python.Version + " を使う") -ForegroundColor Cyan
 
-$venv = Join-Path $PSScriptRoot ".venv"
+# 部品の置き場所を決める。深いフォルダに展開されても 260 文字に当たらないよう、
+# 既定ではユーザーの AppData（短いパス）に置く。
+$localVenv = Join-Path $PSScriptRoot ".venv"
+if ($Local -or -not $env:LOCALAPPDATA) {
+  $venv = $localVenv
+} else {
+  $venv = Join-Path $env:LOCALAPPDATA "MojiOkoshi\venv"
+}
 $py = Join-Path $venv "Scripts\python.exe"
+
+if ($venv -ne $localVenv -and (Test-Path $localVenv)) {
+  Write-Host ("このフォルダの .venv は使わない。消してよい: " + $localVenv) -ForegroundColor Yellow
+}
+if ($venv.Length -gt 120) {
+  Write-Host "置き場所のパスが長い。うまくいかなければ、もっと浅い場所に移すこと。" -ForegroundColor Yellow
+}
+
 if (-not (Test-Path $py)) {
-  Write-Host "仮想環境を作る (.venv) ..."
+  Write-Host ("部品の置き場所を作る: " + $venv)
   $pre = @($python.Pre)
   & $python.Exe @pre -m venv $venv
 }
 if (-not (Test-Path $py)) {
-  Write-Host ".venv を作れなかった。Python の入れ直しを試すこと。" -ForegroundColor Red
+  Write-Host "仮想環境を作れなかった。Python の入れ直しを試すこと。" -ForegroundColor Red
   exit 1
 }
 
@@ -68,7 +88,8 @@ Write-Host "必要なものを入れる ..."
 & $py -m pip install --upgrade pip --quiet
 & $py -m pip install -r (Join-Path $PSScriptRoot "requirements.txt")
 if ($LASTEXITCODE -ne 0) {
-  Write-Host "依存の取得に失敗した。通信を確認して、もう一度実行すること。" -ForegroundColor Red
+  Write-Host "依存の取得に失敗した。" -ForegroundColor Red
+  Write-Host "パスが長すぎる場合は、このフォルダを C:\transcribe のような浅い場所に移すこと。"
   exit 1
 }
 

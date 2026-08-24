@@ -1,11 +1,13 @@
 @echo off
 rem Batch transcription. You can also drop files or folders onto this file.
 cd /d "%~dp0"
-if not exist ".venv\Scripts\python.exe" (
-  echo .venv not found. Run setup.bat first.
+set "VENV=%LOCALAPPDATA%\MojiOkoshi\venv"
+if not exist "%VENV%\Scripts\python.exe" set "VENV=%~dp0.venv"
+if not exist "%VENV%\Scripts\python.exe" (
+  echo Not installed yet. Run setup.bat first.
   pause
   exit /b 1
 )
-".venv\Scripts\python.exe" "cli.py" %*
+"%VENV%\Scripts\python.exe" "%~dp0cli.py" %*
 echo.
 pause
