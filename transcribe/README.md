@@ -23,8 +23,12 @@
    python.org のインストーラを使う場合、**tcl/tk のチェックを外さない**（画面が出せなくなる）。
 
 2. **`setup.bat` をダブルクリック**
-   `.venv` を作り、必要なもの（faster-whisper / sounddevice / numpy）と `small` モデルを取ってくる。
+   必要なもの（faster-whisper / sounddevice / numpy）と `small` モデルを取ってくる。
    ここだけ通信が要る。5〜10 分ほど。
+
+   部品は **`%LOCALAPPDATA%\MojiOkoshi\venv`** に入れる。中に
+   `onnxruntime\tools\ort_format_model\…` のような深い階層があり、**Windows のパス上限
+   260 文字**に当たりやすいので、展開した場所ではなく短い場所へ置いている。
 
    細かく指定したいときは PowerShell から:
    | やりたいこと | コマンド |
@@ -32,6 +36,7 @@
    | 大きいモデルを取っておく | `.\setup.ps1 -Model large-v3-turbo` |
    | モデルは後で（起動時に取りに行く） | `.\setup.ps1 -NoModel` |
    | NVIDIA GPU で動かす | `.\setup.ps1 -Gpu` |
+   | このフォルダの中に `.venv` を作る | `.\setup.ps1 -Local`（浅い場所に置いた場合だけ） |
 
 3. **`run.bat` をダブルクリック**して起動。ショートカットをデスクトップに置いておくとよい。
 
@@ -97,6 +102,8 @@
   - `srt` / `vtt` は**時刻付き**なので、動画の字幕にそのまま使える（保存前の手直しは反映されない）
 - **自動保存**は `ドキュメント\文字起こし\` に入る。**保存先を開く**でその場所を開く
 - 設定は `%APPDATA%\MojiOkoshi\config.json`、モデルは `%APPDATA%\MojiOkoshi\models\`
+- 消すときは `%LOCALAPPDATA%\MojiOkoshi`（部品）と `%APPDATA%\MojiOkoshi`（設定とモデル）、
+  それに展開したフォルダを削除する。他の場所には何も置かない
 
 ---
 
@@ -118,6 +125,7 @@ cli.bat 講演.wav --lang auto --no-time
 
 | 症状 | 見るところ |
 |---|---|
+| `Could not install packages due to an OSError` / `enable-long-paths` | パスが 260 文字を超えている。新しい `setup.bat` は短い場所に入れるので取り直すこと。それでも出るならフォルダを `C:\transcribe` などに移す |
 | `setup.bat` が赤い文字で `演算子 '<' は予約されています` 等を並べて止まる | 古い版の `setup.ps1`。取り直すこと（PowerShell 5.1 は BOM 無しの日本語スクリプトを Shift-JIS として読むため、途中で構文が壊れる） |
 | 入力の一覧に何も出ない | `⟳` を押す。それでも空なら `setup.bat` をもう一度（sounddevice が入っていない） |
 | `PC音声: …` を選ぶと開けない | sounddevice が 0.5 未満。`setup.bat` で入れ直す |
@@ -155,7 +163,7 @@ Shift-JIS として読み、日本語の行で引用符の対応が崩れて動�
 テストは Windows でなくても動く（音声の入出力に触らない部分だけ）。
 
 ```
-.venv\Scripts\python.exe tests\test_core.py
+%LOCALAPPDATA%\MojiOkoshi\venv\Scripts\python.exe tests\test_core.py
 ```
 
 ## 通信について
