@@ -12,6 +12,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+for _stream in (sys.stdout, sys.stderr):
+    try:  # コンソールが Shift-JIS でも、出せない文字で落ちないようにする
+        _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 from core import formats  # noqa: E402
 from core.config import MODEL_SIZES, Config  # noqa: E402
 from core.engine import EngineError, WhisperEngine  # noqa: E402

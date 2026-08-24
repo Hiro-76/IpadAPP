@@ -118,6 +118,7 @@ cli.bat 講演.wav --lang auto --no-time
 
 | 症状 | 見るところ |
 |---|---|
+| `setup.bat` が赤い文字で `演算子 '<' は予約されています` 等を並べて止まる | 古い版の `setup.ps1`。取り直すこと（PowerShell 5.1 は BOM 無しの日本語スクリプトを Shift-JIS として読むため、途中で構文が壊れる） |
 | 入力の一覧に何も出ない | `⟳` を押す。それでも空なら `setup.bat` をもう一度（sounddevice が入っていない） |
 | `PC音声: …` を選ぶと開けない | sounddevice が 0.5 未満。`setup.bat` で入れ直す |
 | マイクが無音のまま | Windows の **設定 → プライバシーとセキュリティ → マイク** でデスクトップアプリの使用を許可する |
@@ -146,6 +147,10 @@ transcribe/
   ui/main_window.py 画面
   tests/test_core.py 音の切り出しと書き出しのテスト
 ```
+
+`setup.ps1` は **BOM 付き UTF-8 のまま**にしておくこと。Windows PowerShell 5.1 は BOM が無いと
+Shift-JIS として読み、日本語の行で引用符の対応が崩れて動かなくなる。
+`.bat` は逆に、コマンドプロンプトの文字コードに左右されないよう **ASCII だけ**で書いてある。
 
 テストは Windows でなくても動く（音声の入出力に触らない部分だけ）。
 

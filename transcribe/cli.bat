@@ -1,8 +1,8 @@
 @echo off
-rem まとめて文字起こしする。ファイルやフォルダをこの bat に放り込んでもよい
+rem Batch transcription. You can also drop files or folders onto this file.
 cd /d "%~dp0"
 if not exist ".venv\Scripts\python.exe" (
-  echo .venv が無い。先に setup.bat を実行すること。
+  echo .venv not found. Run setup.bat first.
   pause
   exit /b 1
 )
