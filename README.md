@@ -441,3 +441,12 @@ wind/icons/                   風計算アプリのアイコン
   先頭の 0 は落とし、ANA 以外の便は社名をそのまま使う。
   印刷時は ETO（手入力したものは `*` 付き）と記入済みの ATO / ALT / RMG / SAT / SPOT WND が
   そのまま出て、未記入の欄は書き込み用の黒枠になる。
+
+## おまけ: ATIS Grabber（Android）
+
+同じリポジトリの `android/` に、**毎時 02 分過ぎに LiveATC から指定空港の ATIS 音声を
+自動で録って貯める Android アプリ**を置いてある。iPad の 2 つとは完全に独立していて、
+こちらは PWA ではなくふつうの Android アプリ（オフラインでは動かない）。
+
+- 使い方・ビルド・APK の受け取り方: [`android/README.md`](android/README.md)
+- ビルド済み debug APK は GitHub の **Actions → `Android APK` → Artifacts** から取れる
