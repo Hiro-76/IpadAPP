@@ -54,6 +54,7 @@ mp3/mp4 ともそのまま読める。
 | `--beam-size` | `5` | 大きいほど精度↑速度↓ |
 | `--no-vad` | off | VAD フィルタを無効化 |
 | `--initial-prompt` | なし | 語彙を誘導する文(下記) |
+| `--prompt-file` | `atc_prompt.txt` | 語彙を書いたファイル |
 | `--no-condition` | off | 直前の認識結果を次に渡さない |
 | `--preview N` | off | 先頭 N セグメントで打ち切る(下見用) |
 | `--check-cuda` | - | CUDA まわりの状態を診断して終了 |
@@ -129,6 +130,20 @@ GPU も実モデルも不要:
 
 出現する管制機関・空港・ウェイポイントを列挙しておく。プロンプトは
 モデルへの語彙のヒントであって、出力に混ざることはない。
+
+**プロンプトは学習ではない。** その 1 回の推論に渡す文脈にすぎず、モデルの
+重みは変わらないので、実行のたびに指定し直す必要がある。毎回打たずに済ませるには
+`atc_prompt.txt` をフォルダに置く。あれば自動で読まれる:
+
+    # atc_prompt.txt
+    Minneapolis Center
+    Aberdeen        # 空港
+    Denver
+    Chicago Center
+
+`#` 以降と空行は無視されるので、整理して書ける。別名のファイルを使うときは
+`--prompt-file`、その場限りで上書きするときは `--initial-prompt` を渡す
+(優先順は `--initial-prompt` > `--prompt-file` > `atc_prompt.txt`)。
 
 ### 同じ文言の繰り返し
 

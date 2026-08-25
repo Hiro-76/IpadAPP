@@ -223,6 +223,50 @@ def test_transcribe_options():
     check("--beam-size が渡る", passed.get("beam_size") == 10, passed)
 
 
+def test_prompt_sources():
+    print("\n[プロンプト] 指定方法の優先順")
+    _, passed = install_fakes()
+    mod = load()
+
+    # フォルダに atc_prompt.txt があれば自動で使う
+    with open("atc_prompt.txt", "w", encoding="utf-8") as f:
+        f.write("# 管制機関\nMinneapolis Center\nAberdeen  # 空港\n\nDenver\n")
+
+    _, out = run_main(mod, ["240801_NH11_2.MP3", "--preview", "1"])
+    check(
+        "atc_prompt.txt を自動で読む",
+        passed.get("initial_prompt") == "Minneapolis Center Aberdeen Denver",
+        passed.get("initial_prompt"),
+    )
+    check("コメントと空行を落とす", "#" not in (passed.get("initial_prompt") or ""), passed)
+    check("読んだことを表示する", "atc_prompt.txt" in out, out[:200])
+
+    # --initial-prompt が最優先
+    _, passed = install_fakes()
+    mod = load()
+    run_main(mod, ["240801_NH11_2.MP3", "--preview", "1", "--initial-prompt", "Chicago Center"])
+    check("--initial-prompt が優先される", passed.get("initial_prompt") == "Chicago Center", passed)
+
+    # --prompt-file で別ファイルを指定
+    with open("other.txt", "w", encoding="utf-8") as f:
+        f.write("Kansas City Center\n")
+    _, passed = install_fakes()
+    mod = load()
+    run_main(mod, ["240801_NH11_2.MP3", "--preview", "1", "--prompt-file", "other.txt"])
+    check("--prompt-file が使える", passed.get("initial_prompt") == "Kansas City Center", passed)
+
+    # 無いファイルを指定したらエラー
+    mod = load()
+    rc, _ = run_main(mod, ["240801_NH11_2.MP3", "--prompt-file", "no_such.txt"])
+    check("無いプロンプトファイルは 1 を返す", rc == 1)
+
+    os.remove("atc_prompt.txt")
+    _, passed = install_fakes()
+    mod = load()
+    run_main(mod, ["240801_NH11_2.MP3", "--preview", "1"])
+    check("ファイルが無ければ渡さない", passed.get("initial_prompt") is None, passed)
+
+
 def test_digits():
     print("\n[数字変換] 読み上げ数字の数値化")
     import importlib.util
@@ -319,6 +363,7 @@ def main():
         test_compute_type_negotiation()
         test_outputs()
         test_transcribe_options()
+        test_prompt_sources()
         test_digits()
         test_windows_dll()
     finally:

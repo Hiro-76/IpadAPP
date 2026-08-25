@@ -25,6 +25,9 @@ try:
 except ImportError:  # atc_numbers.py を隣に置いていない場合は --digits が使えないだけ
     _convert_numbers = None
 
+# このファイルがフォルダにあれば、--initial-prompt を省いても中身が使われる
+DEFAULT_PROMPT_FILE = "atc_prompt.txt"
+
 DEFAULT_MODEL = "jacktol/whisper-medium.en-fine-tuned-for-ATC-faster-whisper"
 
 # ffmpeg 経由で読める代表的な拡張子
@@ -169,6 +172,40 @@ def report_cuda_setup():
                 print(f"  {dev}: 取得できません ({exc})")
     except Exception as exc:
         print(f"  読み込めません: {exc}")
+
+
+def load_prompt_file(path):
+    """プロンプトを書いたテキストファイルを読む。
+
+    行やコメント (#) で整理して書けるようにし、1 行にまとめて返す。
+    """
+    lines = []
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.split("#", 1)[0].strip()
+            if line:
+                lines.append(line)
+    return " ".join(lines)
+
+
+def resolve_prompt(args):
+    """使う initial_prompt と、その出どころの説明を返す。
+
+    優先順は --initial-prompt、--prompt-file、フォルダ内の atc_prompt.txt。
+    毎回長いコマンドを打たずに済むよう、最後の自動読み込みを用意している。
+    """
+    if args.initial_prompt:
+        return args.initial_prompt, "--initial-prompt"
+
+    if args.prompt_file:
+        if not os.path.isfile(args.prompt_file):
+            return None, f"[エラー] プロンプトファイルが見つかりません: {args.prompt_file}"
+        return load_prompt_file(args.prompt_file), args.prompt_file
+
+    if os.path.isfile(DEFAULT_PROMPT_FILE):
+        return load_prompt_file(DEFAULT_PROMPT_FILE), f"{DEFAULT_PROMPT_FILE} (自動)"
+
+    return "", None
 
 
 def detect_device(requested):
@@ -349,6 +386,13 @@ def main():
         '例: --initial-prompt "Minneapolis Center, Aberdeen, Denver"',
     )
     parser.add_argument(
+        "--prompt-file",
+        default="",
+        metavar="PATH",
+        help=f"語彙を書いたテキストファイルを読む。省略時、フォルダに "
+        f"{DEFAULT_PROMPT_FILE} があれば自動で使う",
+    )
+    parser.add_argument(
         "--no-condition",
         action="store_true",
         help="直前の認識結果を次の推論に渡さない。無線特有の同じ文言の繰り返し"
@@ -423,6 +467,15 @@ def main():
 
     # ctranslate2 を import する前に DLL 検索パスを整える
     dll_dirs = add_nvidia_dll_dirs()
+
+    prompt, prompt_source = resolve_prompt(args)
+    if prompt is None:
+        print(prompt_source, file=sys.stderr)
+        return 1
+    args.initial_prompt = prompt
+    if prompt and prompt_source:
+        shown = prompt if len(prompt) <= 60 else prompt[:57] + "..."
+        print(f"initial_prompt [{prompt_source}]: {shown}")
 
     device, reason = detect_device(args.device)
     candidates = pick_compute_types(device, args.compute_type)
