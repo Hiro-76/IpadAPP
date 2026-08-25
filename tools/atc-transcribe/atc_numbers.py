@@ -8,12 +8,14 @@
 
 使い方:
 
-    python atc_numbers.py 240801_NH11_2.txt              # 別名で保存
+    python atc_numbers.py 240801_NH11_2.txt              # <名前>.digits.txt に保存
+    python atc_numbers.py -i 240801_NH11_2.*             # 上書き (--digits の付け忘れ用)
     python atc_numbers.py 240801_NH11_2.txt -o out.txt   # 保存先を指定
     python atc_numbers.py 240801_NH11_2.txt --stdout     # 画面に出すだけ
 """
 
 import argparse
+import glob
 import os
 import re
 import sys
@@ -210,9 +212,53 @@ def convert_text(text):
     return "".join(t for idx, t in enumerate(out) if idx not in consumed)
 
 
+# ワイルドカード指定で音声・動画を巻き込まないよう弾く
+SKIP_EXTS = (
+    ".mp3", ".mp4", ".wav", ".m4a", ".flac", ".ogg", ".opus", ".aac",
+    ".wma", ".mkv", ".mov", ".webm", ".avi", ".ts", ".zip", ".pdf",
+)
+
+
 def default_output(path):
     stem, ext = os.path.splitext(path)
     return f"{stem}.digits{ext or '.txt'}"
+
+
+def expand_inputs(patterns):
+    """引数を展開し、(処理するファイル, 飛ばしたファイル, 見つからない指定) を返す。"""
+    files, skipped, missing = [], [], []
+    for pattern in patterns:
+        hits = sorted(h for h in glob.glob(pattern) if os.path.isfile(h))
+        if not hits:
+            if os.path.isfile(pattern):
+                hits = [pattern]
+            else:
+                missing.append(pattern)
+                continue
+        for hit in hits:
+            if hit in files or hit in skipped:
+                continue
+            if hit.lower().endswith(SKIP_EXTS):
+                skipped.append(hit)
+            else:
+                files.append(hit)
+    return files, skipped, missing
+
+
+def convert_file(path, out_path):
+    """1 ファイルを変換して書き出し、行数を返す。
+
+    上書き時に途中で失敗して元を壊さないよう、全部変換してから書く。
+    """
+    with open(path, encoding="utf-8") as f:
+        lines = f.readlines()
+
+    converted = [convert_text(line.rstrip("\n")) for line in lines]
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(converted) + ("\n" if converted else ""))
+
+    return len(converted)
 
 
 def main():
@@ -222,38 +268,63 @@ def main():
         epilog=(
             "例:\n"
             "  python atc_numbers.py 240801_NH11_2.txt\n"
+            "  python atc_numbers.py -i 240801_NH11_2.*\n"
             "  python atc_numbers.py 240801_NH11_2.txt -o clean.txt\n"
             "  python atc_numbers.py 240801_NH11_2.txt --stdout\n"
         ),
     )
-    parser.add_argument("input", help="変換するテキストファイル")
-    parser.add_argument("-o", "--output", help="出力先 (既定: <名前>.digits.txt)")
+    parser.add_argument("inputs", nargs="+", help="変換するテキストファイル (ワイルドカード可)")
+    parser.add_argument("-o", "--output", help="出力先 (1 ファイルのときのみ)")
+    parser.add_argument(
+        "-i",
+        "--in-place",
+        action="store_true",
+        help="元のファイルを上書きする。--digits を付け忘れたときはこれが最短",
+    )
     parser.add_argument("--stdout", action="store_true", help="ファイルに書かず画面に出す")
     args = parser.parse_args()
 
-    if not os.path.isfile(args.input):
-        print(f"[エラー] 見つかりません: {args.input}", file=sys.stderr)
+    files, skipped, missing = expand_inputs(args.inputs)
+
+    for name in missing:
+        print(f"[エラー] 見つかりません: {name}", file=sys.stderr)
+    for name in skipped:
+        print(f"飛ばしました (テキストではない): {name}")
+
+    if not files:
         return 1
 
-    with open(args.input, encoding="utf-8") as f:
-        lines = f.readlines()
+    if args.output and len(files) > 1:
+        print("[エラー] -o は 1 ファイルのときだけ使えます", file=sys.stderr)
+        return 1
 
-    converted = [convert_text(line.rstrip("\n")) for line in lines]
+    if args.output and args.in_place:
+        print("[エラー] -o と -i は同時に使えません", file=sys.stderr)
+        return 1
 
     if args.stdout:
-        for line in converted:
-            print(line)
+        for path in files:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    print(convert_text(line.rstrip("\n")))
         return 0
 
-    out_path = args.output or default_output(args.input)
-    if os.path.abspath(out_path) == os.path.abspath(args.input):
-        print("[エラー] 入力と同じファイルには書き込みません", file=sys.stderr)
-        return 1
+    for path in files:
+        if args.in_place:
+            out_path = path
+        elif args.output:
+            out_path = args.output
+        else:
+            out_path = default_output(path)
 
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(converted) + "\n")
+        if not args.in_place and os.path.abspath(out_path) == os.path.abspath(path):
+            print(f"[エラー] 入力と同じファイルです。上書きするなら -i: {path}", file=sys.stderr)
+            return 1
 
-    print(f"変換しました: {out_path} ({len(converted)} 行)")
+        count = convert_file(path, out_path)
+        arrow = "上書き" if args.in_place else f"-> {out_path}"
+        print(f"{path} {arrow} ({count} 行)")
+
     return 0
 
 

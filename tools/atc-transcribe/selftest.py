@@ -313,6 +313,56 @@ def test_digits():
     check("既定では変換しない", "point zero two five" in body, body[:120])
 
 
+def test_digits_cli():
+    print("\n[数字変換] コマンドラインと上書き")
+    script = os.path.join(HERE, "atc_numbers.py")
+
+    with open("conv_a.txt", "w", encoding="utf-8") as f:
+        f.write("contact denver one three five point zero two five\n")
+    with open("conv_a.srt", "w", encoding="utf-8") as f:
+        f.write("1\n00:00:13,300 --> 00:00:18,500\naltimeter is three zero zero zero\n")
+    with open("conv_a.MP3", "wb") as f:
+        f.write(b"\0" * 64)
+
+    def run(argv):
+        return subprocess.run(
+            [sys.executable, script] + argv, capture_output=True, text=True
+        )
+
+    # 既定は別名で保存し、元に触れない
+    proc = run(["conv_a.txt"])
+    check("既定は成功する", proc.returncode == 0, proc.stderr)
+    check("別名で出力する", os.path.exists("conv_a.digits.txt"))
+    check(
+        "元のファイルは変わらない",
+        "one three five" in open("conv_a.txt", encoding="utf-8").read(),
+    )
+
+    # -i でまとめて上書き、音声は飛ばす
+    proc = run(["-i", "conv_a.txt", "conv_a.srt", "conv_a.MP3"])
+    check("-i が成功する", proc.returncode == 0, proc.stderr)
+    check("音声を飛ばしたと伝える", "飛ばしました" in proc.stdout, proc.stdout)
+    check("txt を上書きした", "135.025" in open("conv_a.txt", encoding="utf-8").read())
+    check("srt を上書きした", "3000" in open("conv_a.srt", encoding="utf-8").read())
+    srt = open("conv_a.srt", encoding="utf-8").read()
+    check("srt の時刻を壊さない", "00:00:13,300 --> 00:00:18,500" in srt, srt)
+    check("srt の番号を壊さない", srt.startswith("1\n"), srt[:20])
+    check("音声は書き換えない", os.path.getsize("conv_a.MP3") == 64)
+
+    # 二度流しても変わらない
+    before = open("conv_a.txt", encoding="utf-8").read()
+    run(["-i", "conv_a.txt"])
+    check("二度目で結果が変わらない", open("conv_a.txt", encoding="utf-8").read() == before)
+
+    # 誤用を弾く
+    proc = run(["conv_a.txt", "-o", "conv_a.txt"])
+    check("入力と同じ -o は拒否する", proc.returncode == 1, proc.stderr)
+    proc = run(["-i", "-o", "x.txt", "conv_a.txt"])
+    check("-i と -o の併用を拒否する", proc.returncode == 1, proc.stderr)
+    proc = run(["no_such_file.txt"])
+    check("無いファイルは 1 を返す", proc.returncode == 1, proc.stderr)
+
+
 def test_windows_dll():
     print("\n[Windows] CUDA DLL の探索と登録")
     mod = load()
@@ -365,6 +415,7 @@ def main():
         test_transcribe_options()
         test_prompt_sources()
         test_digits()
+        test_digits_cli()
         test_windows_dll()
     finally:
         os.chdir(origin)
