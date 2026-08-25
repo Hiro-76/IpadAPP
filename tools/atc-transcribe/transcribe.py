@@ -242,6 +242,8 @@ def transcribe_one(model, path, args):
         language=args.language,
         beam_size=args.beam_size,
         vad_filter=not args.no_vad,
+        initial_prompt=args.initial_prompt or None,
+        condition_on_previous_text=not args.no_condition,
     )
 
     duration = getattr(info, "duration", None)
@@ -332,6 +334,19 @@ def main():
     parser.add_argument("--language", default="en", help="言語コード (既定: en)")
     parser.add_argument("--beam-size", type=int, default=5, help="ビームサイズ (既定: 5)")
     parser.add_argument("--no-vad", action="store_true", help="VADフィルタを無効化する")
+    parser.add_argument(
+        "--initial-prompt",
+        default="",
+        metavar="TEXT",
+        help="語彙を誘導する文。地名や管制機関名の誤認識を減らせる。"
+        '例: --initial-prompt "Minneapolis Center, Aberdeen, Denver"',
+    )
+    parser.add_argument(
+        "--no-condition",
+        action="store_true",
+        help="直前の認識結果を次の推論に渡さない。無線特有の同じ文言の繰り返し"
+        "(ハルシネーション)が出る場合に有効",
+    )
     parser.add_argument(
         "--plain",
         action="store_true",

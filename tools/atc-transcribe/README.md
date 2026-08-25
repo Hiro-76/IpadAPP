@@ -53,6 +53,8 @@ mp3/mp4 ともそのまま読める。
 | `--language` | `en` | 言語コード |
 | `--beam-size` | `5` | 大きいほど精度↑速度↓ |
 | `--no-vad` | off | VAD フィルタを無効化 |
+| `--initial-prompt` | なし | 語彙を誘導する文(下記) |
+| `--no-condition` | off | 直前の認識結果を次に渡さない |
 | `--preview N` | off | 先頭 N セグメントで打ち切る(下見用) |
 | `--check-cuda` | - | CUDA まわりの状態を診断して終了 |
 
@@ -115,3 +117,29 @@ GPU も実モデルも不要:
 
 `transcribe.py` を編集したら実行すること。構文エラーにならない未定義名
 (関数を消した、名前を打ち間違えた)は `python -m py_compile` では素通りする。
+
+## 精度を上げる
+
+### 固有名詞の誤認識
+
+地名・管制機関名は崩れやすい。実例として Minneapolis Center が `munich` や
+`minneapol siberia` になる。`--initial-prompt` に正しい綴りを与えると改善する:
+
+    python transcribe.py rec.mp3 --initial-prompt "Minneapolis Center, Aberdeen, Denver, Kansas City"
+
+出現する管制機関・空港・ウェイポイントを列挙しておく。プロンプトは
+モデルへの語彙のヒントであって、出力に混ざることはない。
+
+### 同じ文言の繰り返し
+
+長い録音で同一フレーズが延々と続く場合、直前の文脈に引きずられている。
+`--no-condition` で切り離す:
+
+    python transcribe.py rec.mp3 --no-condition
+
+無線交信は1回ごとに独立しているため、ATC 音声では切った方が安定することが多い。
+
+### その他
+
+- `--beam-size 10` — 精度がわずかに上がり、その分遅くなる
+- `--no-vad` — VAD が有効な発話を切り落としている疑いがあるとき

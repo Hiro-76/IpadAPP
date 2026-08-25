@@ -47,6 +47,7 @@ def install_fakes(supported=("float32", "int8", "int8_float32"), fail_types=(), 
     sys.modules["ctranslate2"] = ct2
 
     tried = []
+    passed = {}
 
     class FakeModel:
         def __init__(self, name, device=None, compute_type=None):
@@ -55,6 +56,7 @@ def install_fakes(supported=("float32", "int8", "int8_float32"), fail_types=(), 
                 raise ValueError(f"fake: {compute_type} は使えない")
 
         def transcribe(self, path, **kw):
+            passed.update(kw)
             info = types.SimpleNamespace(duration=2612.2, language="en")
 
             def gen():
@@ -70,7 +72,7 @@ def install_fakes(supported=("float32", "int8", "int8_float32"), fail_types=(), 
     fw = types.ModuleType("faster_whisper")
     fw.WhisperModel = FakeModel
     sys.modules["faster_whisper"] = fw
-    return tried
+    return tried, passed
 
 
 def run_main(mod, argv):
@@ -141,7 +143,7 @@ def test_compute_type_negotiation():
         mod.pick_compute_types("cuda", "int8") == ["int8"],
     )
 
-    tried = install_fakes(
+    tried, _ = install_fakes(
         supported=("float32", "int8", "int8_float32"), fail_types=("int8_float32",)
     )
     mod = load()
@@ -185,6 +187,38 @@ def test_outputs():
         f"{len(full.strip().splitlines())} != {expected}",
     )
     check("実時間比を表示する", "実時間比" in out, out)
+
+
+def test_transcribe_options():
+    print("\n[オプション] transcribe() への受け渡し")
+    _, passed = install_fakes()
+    mod = load()
+
+    run_main(mod, ["240801_NH11_2.MP3", "--preview", "2"])
+    check("既定では initial_prompt を渡さない", passed.get("initial_prompt") is None, passed)
+    check("既定では前文脈を使う", passed.get("condition_on_previous_text") is True, passed)
+    check("既定では VAD が有効", passed.get("vad_filter") is True, passed)
+
+    _, passed = install_fakes()
+    mod = load()
+    run_main(
+        mod,
+        [
+            "240801_NH11_2.MP3",
+            "--preview",
+            "2",
+            "--initial-prompt",
+            "Minneapolis Center",
+            "--no-condition",
+            "--no-vad",
+            "--beam-size",
+            "10",
+        ],
+    )
+    check("initial_prompt が渡る", passed.get("initial_prompt") == "Minneapolis Center", passed)
+    check("--no-condition が効く", passed.get("condition_on_previous_text") is False, passed)
+    check("--no-vad が効く", passed.get("vad_filter") is False, passed)
+    check("--beam-size が渡る", passed.get("beam_size") == 10, passed)
 
 
 def test_windows_dll():
@@ -236,6 +270,7 @@ def main():
         test_missing_file()
         test_compute_type_negotiation()
         test_outputs()
+        test_transcribe_options()
         test_windows_dll()
     finally:
         os.chdir(origin)
