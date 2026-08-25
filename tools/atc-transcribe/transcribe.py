@@ -63,68 +63,107 @@ def expand_inputs(patterns):
     return files, missing
 
 
-def add_nvidia_dll_dirs():
-    """Windows で pip 版 CUDA ライブラリの DLL を検索パスに追加する。
+def _site_dirs():
+    dirs = []
+    try:
+        dirs.extend(site.getsitepackages())
+    except AttributeError:
+        pass
+    try:
+        dirs.append(site.getusersitepackages())
+    except AttributeError:
+        pass
+    # 仮想環境によっては上記が空になるので、自分の居場所からも辿る
+    dirs.append(os.path.dirname(os.path.dirname(os.__file__)))
+    return dirs
 
-    ctranslate2 は cudnn_ops64_9.dll や cublas64_12.dll を実行時にロードするが、
-    pip でインストールした nvidia-* パッケージの bin フォルダは既定の DLL 検索
-    パスに含まれない。その結果 GPU があっても「DLL が見つかりません」で落ちる。
-    ここで明示的に追加しておく。
+
+def find_nvidia_dll_dirs():
+    """pip 版 nvidia-* パッケージが置いた DLL のあるフォルダを列挙する。
+
+    レイアウトはパッケージのバージョンによって変わる (nvidia/cublas/bin,
+    nvidia/cudnn/bin/12 など) ため、決め打ちせず .dll を含むフォルダを探す。
     """
-    if sys.platform != "win32" or not hasattr(os, "add_dll_directory"):
-        return []
-
-    site_dirs = []
-    try:
-        site_dirs.extend(site.getsitepackages())
-    except AttributeError:
-        pass
-    try:
-        site_dirs.append(site.getusersitepackages())
-    except AttributeError:
-        pass
-
-    added = []
+    found = []
     seen = set()
-    for site_dir in site_dirs:
+    for site_dir in _site_dirs():
         nvidia_root = os.path.join(site_dir, "nvidia")
         if not os.path.isdir(nvidia_root):
             continue
-        for pkg in sorted(os.listdir(nvidia_root)):
-            bin_dir = os.path.join(nvidia_root, pkg, "bin")
-            key = os.path.normcase(bin_dir)
-            if key in seen or not os.path.isdir(bin_dir):
+        for root, _dirs, files in os.walk(nvidia_root):
+            if not any(f.lower().endswith(".dll") for f in files):
+                continue
+            key = os.path.normcase(root)
+            if key in seen:
                 continue
             seen.add(key)
+            found.append(root)
+    return sorted(found)
+
+
+def add_nvidia_dll_dirs():
+    """Windows で pip 版 CUDA ライブラリを見つけられるようにする。
+
+    ctranslate2 は cublas64_12.dll や cudnn_ops64_9.dll を実行時に
+    LoadLibrary で遅延ロードする。この経路は os.add_dll_directory() で
+    追加したパスを見ないことがあるため、PATH にも通しておく。
+    両方やらないと「DLL is not found or cannot be loaded」で落ちる。
+    """
+    if sys.platform != "win32":
+        return []
+
+    dirs = find_nvidia_dll_dirs()
+    if not dirs:
+        return []
+
+    if hasattr(os, "add_dll_directory"):
+        for bin_dir in dirs:
             try:
                 os.add_dll_directory(bin_dir)
-                added.append(bin_dir)
             except OSError:
                 pass
-    return added
+
+    current = os.environ.get("PATH", "")
+    current_keys = {os.path.normcase(x) for x in current.split(os.pathsep) if x}
+    missing = [d for d in dirs if os.path.normcase(d) not in current_keys]
+    if missing:
+        os.environ["PATH"] = os.pathsep.join(missing) + os.pathsep + current
+
+    return dirs
 
 
-def detect_device(requested):
-    """
-    requested: "auto" | "cpu" | "cuda"
-    戻り値: (device, 説明文)
-    """
-    if requested == "cpu":
-        return "cpu", "指定により CPU を使用"
-    if requested == "cuda":
-        return "cuda", "指定により CUDA を使用"
+def report_cuda_setup():
+    """--check-cuda 用。CUDA まわりの状態を洗いざらい表示する。"""
+    print(f"プラットフォーム: {sys.platform}")
 
-    # auto: ctranslate2 に GPU が見えるかで判定する。
-    # faster-whisper は ctranslate2 に依存しているので追加インストールは不要。
+    dirs = find_nvidia_dll_dirs()
+    if not dirs:
+        print("\nnvidia-* パッケージの DLL フォルダが見つかりません。")
+        print("  pip install nvidia-cublas-cu12 nvidia-cudnn-cu12")
+    else:
+        print(f"\nDLL フォルダ {len(dirs)} 件:")
+        for d in dirs:
+            names = sorted(f for f in os.listdir(d) if f.lower().endswith(".dll"))
+            print(f"  {d}")
+            for n in names:
+                print(f"      {n}")
+
+    add_nvidia_dll_dirs()
+
+    print("\nctranslate2:")
     try:
         import ctranslate2
 
-        count = ctranslate2.get_cuda_device_count()
-        if count > 0:
-            return "cuda", f"CUDA デバイスを {count} 個検出したので GPU を使用"
-        return "cpu", "CUDA デバイスが見つからないので CPU を使用"
-    except Exception as exc:  # ctranslate2 が古い等
-        return "cpu", f"GPU 判定に失敗したので CPU を使用 ({exc})"
+        print(f"  バージョン: {ctranslate2.__version__}")
+        print(f"  CUDA デバイス数: {ctranslate2.get_cuda_device_count()}")
+        for dev in ("cpu", "cuda"):
+            try:
+                types = sorted(ctranslate2.get_supported_compute_types(dev))
+                print(f"  {dev} で使える compute_type: {', '.join(types)}")
+            except Exception as exc:
+                print(f"  {dev}: 取得できません ({exc})")
+    except Exception as exc:
+        print(f"  読み込めません: {exc}")
 
 
 # 上から順に試す。float16 は Pascal 世代など古い GPU では効率的に扱えず、
@@ -285,8 +324,17 @@ def main():
         "出力は <名前>.preview.txt となり本番の結果を上書きしない",
     )
     parser.add_argument("--list", action="store_true", help="フォルダ内の対象ファイルを一覧表示して終了")
+    parser.add_argument(
+        "--check-cuda",
+        action="store_true",
+        help="CUDA まわりの状態(DLLの場所、対応compute_type)を診断して終了",
+    )
 
     args = parser.parse_args()
+
+    if args.check_cuda:
+        report_cuda_setup()
+        return 0
 
     if args.list or not args.inputs:
         candidates = find_media(".")
@@ -320,8 +368,15 @@ def main():
     device, reason = detect_device(args.device)
     candidates = pick_compute_types(device, args.compute_type)
     print(f"デバイス: {device} ({reason})")
-    if device == "cuda" and dll_dirs:
-        print(f"CUDA DLL 検索パスを {len(dll_dirs)} 件追加しました")
+    if device == "cuda":
+        if dll_dirs:
+            print(f"CUDA DLL 検索パスを {len(dll_dirs)} 件追加しました")
+        elif sys.platform == "win32":
+            print(
+                "[警告] nvidia-* パッケージの DLL が見つかりません。"
+                "詳しくは --check-cuda を実行してください",
+                file=sys.stderr,
+            )
     print(f"compute_type 候補: {', '.join(candidates)}")
     print(f"モデル: {args.model}")
     print("モデルを読み込み中... (初回はダウンロードで時間がかかります)", flush=True)
@@ -368,6 +423,12 @@ def main():
         except Exception as exc:
             failed += 1
             print(f"[エラー] {path} の処理に失敗: {exc}", file=sys.stderr)
+            if "dll" in str(exc).lower() or "cannot be loaded" in str(exc).lower():
+                print(
+                    "  CUDA の DLL を読めていません。--check-cuda で配置を確認するか、"
+                    "--device cpu で回避できます",
+                    file=sys.stderr,
+                )
 
     return 1 if failed else 0
 

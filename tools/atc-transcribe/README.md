@@ -54,6 +54,7 @@ mp3/mp4 ともそのまま読める。
 | `--beam-size` | `5` | 大きいほど精度↑速度↓ |
 | `--no-vad` | off | VAD フィルタを無効化 |
 | `--preview N` | off | 先頭 N セグメントで打ち切る(下見用) |
+| `--check-cuda` | - | CUDA まわりの状態を診断して終了 |
 
 ## GPU を使う
 
@@ -67,10 +68,20 @@ CUDA 用の cuBLAS / cuDNN が必要:
 
     pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
 
-Windows では、pip で入れた `nvidia-*` パッケージの `bin` フォルダが DLL 検索パスに
-入らず、GPU があっても `cudnn_ops64_9.dll が見つかりません` で落ちることがある。
-本スクリプトは起動時に `os.add_dll_directory()` でこれらを自動追加するため、
-PATH を手で設定する必要はない。
+Windows では、pip で入れた `nvidia-*` パッケージの DLL フォルダが検索パスに入らず、
+GPU があっても `cublas64_12.dll is not found or cannot be loaded` で落ちることがある。
+
+本スクリプトは起動時に、`site-packages/nvidia` 以下から `.dll` を含むフォルダを走査し、
+`os.add_dll_directory()` と `PATH` の**両方**に登録する。ctranslate2 は CUDA ライブラリを
+実行時に `LoadLibrary` で遅延ロードし、この経路は `add_dll_directory()` で追加した
+パスを見ないことがあるため、片方だけでは足りない。
+
+配置を確認したいときは:
+
+    python transcribe.py --check-cuda
+
+DLL の在り処、ctranslate2 のバージョン、CUDA デバイス数、デバイスごとに使える
+compute_type が一覧表示される。
 
 読み込みに失敗する場合の切り分け:
 
