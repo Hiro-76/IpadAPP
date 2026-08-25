@@ -127,9 +127,32 @@ def detect_device(requested):
         return "cpu", f"GPU 判定に失敗したので CPU を使用 ({exc})"
 
 
-def default_compute_type(device):
-    # GPU は float16 が速度と精度のバランスが良い。CPU は int8 が現実的。
-    return "float16" if device == "cuda" else "int8"
+# 上から順に試す。float16 は Pascal 世代など古い GPU では効率的に扱えず、
+# ctranslate2 が読み込み時に例外を投げるため、代替を用意しておく。
+CUDA_COMPUTE_PREFERENCE = ("float16", "int8_float32", "float32")
+CPU_COMPUTE_PREFERENCE = ("int8", "float32")
+
+
+def pick_compute_types(device, requested):
+    """試す compute_type を優先順のリストで返す。
+
+    ctranslate2 に「このデバイスで効率的に動く型」を問い合わせ、
+    対応しているものだけに絞る。問い合わせに失敗した場合は
+    優先リストをそのまま返し、実際の読み込みで判定させる。
+    """
+    if requested:
+        return [requested]
+
+    prefs = CUDA_COMPUTE_PREFERENCE if device == "cuda" else CPU_COMPUTE_PREFERENCE
+    try:
+        import ctranslate2
+
+        supported = set(ctranslate2.get_supported_compute_types(device))
+    except Exception:
+        return list(prefs)
+
+    ordered = [c for c in prefs if c in supported]
+    return ordered or list(prefs)
 
 
 def format_timestamp(seconds, sep=","):
@@ -295,11 +318,11 @@ def main():
     dll_dirs = add_nvidia_dll_dirs()
 
     device, reason = detect_device(args.device)
-    compute_type = args.compute_type or default_compute_type(device)
+    candidates = pick_compute_types(device, args.compute_type)
     print(f"デバイス: {device} ({reason})")
     if device == "cuda" and dll_dirs:
         print(f"CUDA DLL 検索パスを {len(dll_dirs)} 件追加しました")
-    print(f"compute_type: {compute_type}")
+    print(f"compute_type 候補: {', '.join(candidates)}")
     print(f"モデル: {args.model}")
     print("モデルを読み込み中... (初回はダウンロードで時間がかかります)", flush=True)
 
@@ -313,16 +336,28 @@ def main():
         print("未インストールなら:  pip install faster-whisper", file=sys.stderr)
         return 1
 
-    try:
-        model = WhisperModel(args.model, device=device, compute_type=compute_type)
-    except Exception as exc:
+    model = None
+    compute_type = None
+    exc = None
+    for candidate in candidates:
+        try:
+            model = WhisperModel(args.model, device=device, compute_type=candidate)
+            compute_type = candidate
+            break
+        except Exception as err:
+            exc = err
+            print(f"  {candidate} は使えませんでした: {err}", file=sys.stderr)
+
+    if model is not None:
+        print(f"compute_type: {compute_type} を使用", flush=True)
+    else:
         print(f"[エラー] モデルの読み込みに失敗しました: {exc}", file=sys.stderr)
         if device == "cuda":
             print("", file=sys.stderr)
             print("GPU での読み込みに失敗しました。よくある原因:", file=sys.stderr)
             print("  1. cuBLAS/cuDNN が未インストール", file=sys.stderr)
             print("     pip install nvidia-cublas-cu12 nvidia-cudnn-cu12", file=sys.stderr)
-            print("  2. VRAM 不足 → --compute-type int8_float16 を試す", file=sys.stderr)
+            print("  2. VRAM 不足 → --compute-type int8 を試す", file=sys.stderr)
             print("  3. 切り分け用に CPU で動かす → --device cpu", file=sys.stderr)
         return 1
 

@@ -48,7 +48,7 @@ mp3/mp4 ともそのまま読める。
 | オプション | 既定 | 説明 |
 |---|---|---|
 | `--device` | `auto` | `auto` / `cpu` / `cuda`。auto は GPU を自動検出 |
-| `--compute-type` | 自動 | cuda→`float16`、cpu→`int8` |
+| `--compute-type` | 自動 | 対応形式を自動選択(下記参照) |
 | `--model` | ATC特化モデル | 別モデルを試す場合 |
 | `--language` | `en` | 言語コード |
 | `--beam-size` | `5` | 大きいほど精度↑速度↓ |
@@ -77,5 +77,19 @@ PATH を手で設定する必要はない。
 | 症状 | 対処 |
 |---|---|
 | DLL が見つからない | 上記2パッケージが入っているか確認 |
-| VRAM 不足 (out of memory) | `--compute-type int8_float16` |
+| VRAM 不足 (out of memory) | `--compute-type int8` |
 | 原因不明 | `--device cpu` で動作するか確認 |
+
+### compute_type の自動選択
+
+`float16` は Pascal 世代(GTX 10xx 等)以前の GPU では効率的に扱えず、
+ctranslate2 が読み込み時に例外を投げる。
+
+そのため起動時に `ctranslate2.get_supported_compute_types()` へ問い合わせ、
+このデバイスで動く型だけに絞ってから、優先順に読み込みを試す:
+
+- GPU: `float16` → `int8_float32` → `float32`
+- CPU: `int8` → `float32`
+
+実際に採用された型は `compute_type: ... を使用` として表示される。
+`--compute-type` を明示した場合は自動選択せず、その型だけを使う。
