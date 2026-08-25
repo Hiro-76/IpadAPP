@@ -20,6 +20,11 @@ import site
 import sys
 import time
 
+try:
+    from atc_numbers import convert_text as _convert_numbers
+except ImportError:  # atc_numbers.py を隣に置いていない場合は --digits が使えないだけ
+    _convert_numbers = None
+
 DEFAULT_MODEL = "jacktol/whisper-medium.en-fine-tuned-for-ATC-faster-whisper"
 
 # ffmpeg 経由で読める代表的な拡張子
@@ -259,6 +264,8 @@ def transcribe_one(model, path, args):
         text = seg.text.strip()
         if not text:
             continue
+        if args.digits:
+            text = _convert_numbers(text)
         # 空セグメントを除外した後の連番。SRT の番号は連続している必要がある
         index = len(lines) + 1
         line = f"[{seg.start:7.1f}s -> {seg.end:7.1f}s] {text}"
@@ -354,6 +361,12 @@ def main():
     )
     parser.add_argument("--srt", action="store_true", help="字幕ファイル (<名前>.srt) も出力する")
     parser.add_argument(
+        "--digits",
+        action="store_true",
+        help="読み上げられた数字を数値表記にする "
+        "(one three five point zero two five → 135.025)",
+    )
+    parser.add_argument(
         "--preview",
         type=int,
         metavar="N",
@@ -373,6 +386,14 @@ def main():
     if args.check_cuda:
         report_cuda_setup()
         return 0
+
+    if args.digits and _convert_numbers is None:
+        print(
+            "[エラー] --digits には atc_numbers.py が必要です。"
+            "transcribe.py と同じフォルダに置いてください",
+            file=sys.stderr,
+        )
+        return 1
 
     if args.list or not args.inputs:
         candidates = find_media(".")

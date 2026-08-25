@@ -64,7 +64,9 @@ def install_fakes(supported=("float32", "int8", "int8_float32"), fail_types=(), 
                     yield types.SimpleNamespace(
                         start=i * 3.0,
                         end=i * 3.0 + 2.5,
-                        text="" if i % 7 == 3 else f" All Nippon {i} contact Tokyo Control ",
+                        text=""
+                        if i % 7 == 3
+                        else " contact minneapolis one three five point zero two five ",
                     )
 
             return gen(), info
@@ -221,6 +223,52 @@ def test_transcribe_options():
     check("--beam-size が渡る", passed.get("beam_size") == 10, passed)
 
 
+def test_digits():
+    print("\n[数字変換] 読み上げ数字の数値化")
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "atc_numbers_under_test", os.path.join(HERE, "atc_numbers.py")
+    )
+    an = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(an)
+
+    cases = [
+        ("one three five point zero two five", "135.025"),
+        ("turn left heading three zero zero", "turn left heading 300"),
+        ("flight level three five zero", "flight level 350"),
+        ("climb and maintain six thousand", "climb and maintain 6000"),
+        ("squawk four five three seven", "squawk 4537"),
+        ("altimeter is three zero zero zero", "altimeter is 3000"),
+        ("delta eight seventy six", "delta 876"),
+        ("american twenty five ninety four", "american 2594"),
+        ("maintain two hundred eighty knots", "maintain 280 knots"),
+        ("descend and maintain one one thousand", "descend and maintain 11000"),
+        ("one contact denver one three five point zero two five fifteen sixty five",
+         "1 contact denver 135.025 1565"),
+        ("for the delta holding point one one time", "for the delta holding point 11 time"),
+        ("radar contact munich golf contact you sir", "radar contact munich golf contact you sir"),
+        ("All right, mania two three two zero", "All right, mania 2320"),
+    ]
+    for src, want in cases:
+        got = an.convert_text(src)
+        check(f"変換: {src[:44]}", got == want, f"-> {got}")
+
+    print("\n[数字変換] transcribe.py への組み込み")
+    install_fakes()
+    mod = load()
+    run_main(mod, ["240801_NH11_2.MP3", "--preview", "2", "--digits"])
+    body = open("240801_NH11_2.preview.txt", encoding="utf-8").read()
+    check("--digits が出力に効く", "135.025" in body, body[:120])
+    check("--digits なしの語が残っていない", "point zero two five" not in body, body[:120])
+
+    install_fakes()
+    mod = load()
+    run_main(mod, ["240801_NH11_2.MP3", "--preview", "2"])
+    body = open("240801_NH11_2.preview.txt", encoding="utf-8").read()
+    check("既定では変換しない", "point zero two five" in body, body[:120])
+
+
 def test_windows_dll():
     print("\n[Windows] CUDA DLL の探索と登録")
     mod = load()
@@ -271,6 +319,7 @@ def main():
         test_compute_type_negotiation()
         test_outputs()
         test_transcribe_options()
+        test_digits()
         test_windows_dll()
     finally:
         os.chdir(origin)

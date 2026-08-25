@@ -143,3 +143,39 @@ GPU も実モデルも不要:
 
 - `--beam-size 10` — 精度がわずかに上がり、その分遅くなる
 - `--no-vad` — VAD が有効な発話を切り落としている疑いがあるとき
+
+## 読み上げ数字を数値にする
+
+ATC は数字を 1 桁ずつ読む。そのままでは読みにくいので `--digits` で変換する:
+
+    python transcribe.py rec.mp3 --plain --digits
+
+| 変換前 | 変換後 |
+|---|---|
+| `one three five point zero two five` | `135.025` |
+| `turn left heading three zero zero` | `turn left heading 300` |
+| `flight level three five zero` | `flight level 350` |
+| `climb and maintain six thousand` | `climb and maintain 6000` |
+| `american twenty five ninety four` | `american 2594` |
+
+既にあるテキストを変換するには `atc_numbers.py` を単体で使う:
+
+    python atc_numbers.py 240801_NH11_2.txt              # <名前>.digits.txt に保存
+    python atc_numbers.py 240801_NH11_2.txt --stdout     # 画面に出すだけ
+
+入力ファイルを上書きすることはない。
+
+### 変換の仕組み
+
+ATC には読み方が 2 通り混ざる。1 桁ずつ読む `three five zero` (=350) と、
+まとめて読む `six thousand` (=6000)、`twenty five` (=25) である。
+`hundred` / `thousand` を含む並びだけ算術で解釈し、それ以外は桁の連結として扱う。
+連結にしないと `three zero zero zero` が 3000 でなく 3 になってしまう。
+
+小数部は 1 桁ずつしか読まれないため、`fifteen` や `sixty` のようなまとめ読みが
+現れたらそこで数字が変わったと判断する。これがないと
+`one three five point zero two five fifteen sixty five` が
+`135.0251565` と繋がってしまう。
+
+`point` は数と数に挟まれたときだけ小数点とみなすので、`holding point` の
+`point` は残る。
