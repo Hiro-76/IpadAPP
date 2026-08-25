@@ -166,6 +166,29 @@ def report_cuda_setup():
         print(f"  読み込めません: {exc}")
 
 
+def detect_device(requested):
+    """
+    requested: "auto" | "cpu" | "cuda"
+    戻り値: (device, 説明文)
+    """
+    if requested == "cpu":
+        return "cpu", "指定により CPU を使用"
+    if requested == "cuda":
+        return "cuda", "指定により CUDA を使用"
+
+    # auto: ctranslate2 に GPU が見えるかで判定する。
+    # faster-whisper は ctranslate2 に依存しているので追加インストールは不要。
+    try:
+        import ctranslate2
+
+        count = ctranslate2.get_cuda_device_count()
+        if count > 0:
+            return "cuda", f"CUDA デバイスを {count} 個検出したので GPU を使用"
+        return "cpu", "CUDA デバイスが見つからないので CPU を使用"
+    except Exception as exc:  # ctranslate2 が古い等
+        return "cpu", f"GPU 判定に失敗したので CPU を使用 ({exc})"
+
+
 # 上から順に試す。float16 は Pascal 世代など古い GPU では効率的に扱えず、
 # ctranslate2 が読み込み時に例外を投げるため、代替を用意しておく。
 CUDA_COMPUTE_PREFERENCE = ("float16", "int8_float32", "float32")

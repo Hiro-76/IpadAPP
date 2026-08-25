@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""transcribe.py の自己テスト。
+
+faster-whisper と ctranslate2 を偽物に差し替えて、GPU もモデルも無い環境で
+main() の全経路を通す。実行:
+
+    python selftest.py
+"""
+
+import importlib.util
+import io
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import types
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TARGET = os.path.join(HERE, "transcribe.py")
+
+failures = []
+
+
+def check(label, condition, detail=""):
+    if condition:
+        print(f"  ok   {label}")
+    else:
+        print(f"  FAIL {label} {detail}")
+        failures.append(label)
+
+
+def load():
+    """transcribe.py を毎回まっさらに読み込む(モジュール状態を持ち越さない)。"""
+    spec = importlib.util.spec_from_file_location("tr_under_test", TARGET)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def install_fakes(supported=("float32", "int8", "int8_float32"), fail_types=(), segments=200):
+    """偽の ctranslate2 / faster_whisper を sys.modules に置く。"""
+    ct2 = types.ModuleType("ctranslate2")
+    ct2.__version__ = "0.0.0-fake"
+    ct2.get_cuda_device_count = lambda: 1
+    ct2.get_supported_compute_types = lambda device: set(supported)
+    sys.modules["ctranslate2"] = ct2
+
+    tried = []
+
+    class FakeModel:
+        def __init__(self, name, device=None, compute_type=None):
+            tried.append(compute_type)
+            if compute_type in fail_types:
+                raise ValueError(f"fake: {compute_type} は使えない")
+
+        def transcribe(self, path, **kw):
+            info = types.SimpleNamespace(duration=2612.2, language="en")
+
+            def gen():
+                for i in range(segments):
+                    yield types.SimpleNamespace(
+                        start=i * 3.0,
+                        end=i * 3.0 + 2.5,
+                        text="" if i % 7 == 3 else f" All Nippon {i} contact Tokyo Control ",
+                    )
+
+            return gen(), info
+
+    fw = types.ModuleType("faster_whisper")
+    fw.WhisperModel = FakeModel
+    sys.modules["faster_whisper"] = fw
+    return tried
+
+
+def run_main(mod, argv):
+    """main() を argv で実行し、(戻り値, 標準出力) を返す。"""
+    old_argv, old_out = sys.argv, sys.stdout
+    sys.argv = ["transcribe.py"] + argv
+    sys.stdout = io.StringIO()
+    try:
+        rc = mod.main()
+        return rc, sys.stdout.getvalue()
+    finally:
+        sys.argv, sys.stdout = old_argv, old_out
+
+
+def test_static():
+    print("\n[静的解析] 未定義名・未使用 import")
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pyflakes", TARGET],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        print("  skip pyflakes が無い (pip install pyflakes)")
+        return
+    if proc.returncode == 127 or "No module named" in proc.stderr:
+        print("  skip pyflakes が無い (pip install pyflakes)")
+        return
+    check("pyflakes が警告なし", proc.returncode == 0, proc.stdout.strip())
+
+
+def test_cli_without_deps():
+    print("\n[CLI] 依存が無くても動く経路")
+    for mod_name in ("ctranslate2", "faster_whisper"):
+        sys.modules.pop(mod_name, None)
+    mod = load()
+
+    rc, out = run_main(mod, ["--list"])
+    check("--list が成功する", rc == 0)
+    check("--list が候補を出す", "240801_NH11_2.MP3" in out, out)
+
+    rc, out = run_main(mod, [])
+    check("引数なしは使い方を出して 1 を返す", rc == 1 and "使い方" in out)
+
+    rc, out = run_main(mod, ["--check-cuda"])
+    check("--check-cuda が成功する", rc == 0)
+    check("--check-cuda が ctranslate2 に触れる", "ctranslate2" in out, out)
+
+
+def test_missing_file():
+    print("\n[CLI] 存在しないファイル")
+    mod = load()
+    rc, _ = run_main(mod, ["no_such_file.mp3"])
+    check("戻り値が 1", rc == 1)
+
+
+def test_compute_type_negotiation():
+    print("\n[compute_type] 選択と読み込みフォールバック")
+    install_fakes(supported=("float32", "int8", "int8_float32"))
+    mod = load()
+    check(
+        "float16 非対応 GPU では候補から外れる",
+        mod.pick_compute_types("cuda", None) == ["int8_float32", "float32"],
+        mod.pick_compute_types("cuda", None),
+    )
+    check(
+        "明示指定はそのまま使う",
+        mod.pick_compute_types("cuda", "int8") == ["int8"],
+    )
+
+    tried = install_fakes(
+        supported=("float32", "int8", "int8_float32"), fail_types=("int8_float32",)
+    )
+    mod = load()
+    rc, out = run_main(mod, ["240801_NH11_2.MP3", "--preview", "3"])
+    check("失敗した候補を飛ばして成功する", rc == 0, out)
+    check("試した順が優先順どおり", tried == ["int8_float32", "float32"], tried)
+    check("採用した型を表示する", "compute_type: float32 を使用" in out, out)
+
+
+def test_outputs():
+    print("\n[出力] ファイル生成と --preview")
+    install_fakes()
+    mod = load()
+
+    rc, out = run_main(mod, ["240801_NH11_2.MP3", "--plain", "--srt", "--preview", "5"])
+    check("preview 実行が成功する", rc == 0, out)
+    check("preview は別名で出力する", os.path.exists("240801_NH11_2.preview.txt"))
+    check("本番の txt を作らない", not os.path.exists("240801_NH11_2.txt"))
+
+    body = open("240801_NH11_2.preview.txt", encoding="utf-8").read()
+    check("preview の件数が指定どおり", len(body.strip().splitlines()) == 5, body)
+
+    plain = open("240801_NH11_2.preview.plain.txt", encoding="utf-8").read()
+    check("plain にタイムスタンプが無い", "->" not in plain, plain)
+    check("plain が空行を含まない", "" not in plain.strip().splitlines(), plain)
+
+    srt = open("240801_NH11_2.preview.srt", encoding="utf-8").read()
+    numbers = [ln for ln in srt.splitlines() if ln.isdigit()]
+    check("SRT の番号が 1 から連番", numbers == ["1", "2", "3", "4", "5"], numbers)
+    check("SRT の時刻が HH:MM:SS,mmm 形式", "00:00:00,000 --> 00:00:02,500" in srt, srt)
+
+    rc, out = run_main(mod, ["240801_NH11_2.MP3", "--plain"])
+    check("本番実行が成功する", rc == 0, out)
+    check("本番は入力名の txt を作る", os.path.exists("240801_NH11_2.txt"))
+    full = open("240801_NH11_2.txt", encoding="utf-8").read()
+    # 200 セグメント中 i%7==3 の 29 件が空 → 171 行残る
+    expected = 200 - len([i for i in range(200) if i % 7 == 3])
+    check(
+        "空セグメントを除外している",
+        len(full.strip().splitlines()) == expected,
+        f"{len(full.strip().splitlines())} != {expected}",
+    )
+    check("実時間比を表示する", "実時間比" in out, out)
+
+
+def test_windows_dll():
+    print("\n[Windows] CUDA DLL の探索と登録")
+    mod = load()
+    check("Windows 以外では何もしない", mod.add_nvidia_dll_dirs() == [])
+
+    root = os.path.abspath("fake_site")
+    layout = {
+        os.path.join("nvidia", "cublas", "bin"): ["cublas64_12.dll"],
+        os.path.join("nvidia", "cudnn", "bin", "12"): ["cudnn_ops64_9.dll"],
+        os.path.join("nvidia", "cublas", "include"): ["cublas.h"],
+    }
+    for rel, names in layout.items():
+        d = os.path.join(root, rel)
+        os.makedirs(d, exist_ok=True)
+        for n in names:
+            open(os.path.join(d, n), "w").close()
+
+    registered = []
+    mod.sys.platform = "win32"
+    mod.os.add_dll_directory = registered.append
+    mod.site.getsitepackages = lambda: [root]
+    mod.site.getusersitepackages = lambda: root
+    mod._site_dirs = lambda: [root]
+    os.environ["PATH"] = "C_WINDOWS_SYSTEM32"
+
+    dirs = mod.add_nvidia_dll_dirs()
+    check("dll のあるフォルダだけ拾う", len(dirs) == 2, dirs)
+    check("include を拾わない", not any("include" in d for d in dirs), dirs)
+    check("入れ子のフォルダも辿る", any(d.endswith(os.path.join("bin", "12")) for d in dirs), dirs)
+    check("add_dll_directory に登録する", len(registered) == 2, registered)
+    check("PATH の先頭に入れる", os.environ["PATH"].startswith(dirs[0]), os.environ["PATH"])
+    check("既存の PATH を残す", os.environ["PATH"].endswith("C_WINDOWS_SYSTEM32"))
+
+    before = os.environ["PATH"]
+    mod.add_nvidia_dll_dirs()
+    check("再実行で PATH が伸びない", os.environ["PATH"] == before)
+
+
+def main():
+    workdir = tempfile.mkdtemp(prefix="atc-selftest-")
+    origin = os.getcwd()
+    os.chdir(workdir)
+    open("240801_NH11_2.MP3", "wb").write(b"\0" * 1024)
+    try:
+        test_static()
+        test_cli_without_deps()
+        test_missing_file()
+        test_compute_type_negotiation()
+        test_outputs()
+        test_windows_dll()
+    finally:
+        os.chdir(origin)
+        shutil.rmtree(workdir, ignore_errors=True)
+
+    print()
+    if failures:
+        print(f"失敗 {len(failures)} 件: {', '.join(failures)}")
+        return 1
+    print("すべて通過")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

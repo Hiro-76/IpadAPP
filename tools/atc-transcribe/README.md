@@ -104,3 +104,14 @@ ctranslate2 が読み込み時に例外を投げる。
 
 実際に採用された型は `compute_type: ... を使用` として表示される。
 `--compute-type` を明示した場合は自動選択せず、その型だけを使う。
+
+## 自己テスト
+
+faster-whisper と ctranslate2 を偽物に差し替えて main() の全経路を通す。
+GPU も実モデルも不要:
+
+    pip install pyflakes      # 未定義名の検出に使う。無ければその検査だけ飛ばす
+    python selftest.py
+
+`transcribe.py` を編集したら実行すること。構文エラーにならない未定義名
+(関数を消した、名前を打ち間違えた)は `python -m py_compile` では素通りする。
