@@ -16,6 +16,7 @@ ATC特化ファインチューニング済みモデル
 import argparse
 import glob
 import os
+import site
 import sys
 import time
 
@@ -60,6 +61,47 @@ def expand_inputs(patterns):
         else:
             missing.append(pattern)
     return files, missing
+
+
+def add_nvidia_dll_dirs():
+    """Windows で pip 版 CUDA ライブラリの DLL を検索パスに追加する。
+
+    ctranslate2 は cudnn_ops64_9.dll や cublas64_12.dll を実行時にロードするが、
+    pip でインストールした nvidia-* パッケージの bin フォルダは既定の DLL 検索
+    パスに含まれない。その結果 GPU があっても「DLL が見つかりません」で落ちる。
+    ここで明示的に追加しておく。
+    """
+    if sys.platform != "win32" or not hasattr(os, "add_dll_directory"):
+        return []
+
+    site_dirs = []
+    try:
+        site_dirs.extend(site.getsitepackages())
+    except AttributeError:
+        pass
+    try:
+        site_dirs.append(site.getusersitepackages())
+    except AttributeError:
+        pass
+
+    added = []
+    seen = set()
+    for site_dir in site_dirs:
+        nvidia_root = os.path.join(site_dir, "nvidia")
+        if not os.path.isdir(nvidia_root):
+            continue
+        for pkg in sorted(os.listdir(nvidia_root)):
+            bin_dir = os.path.join(nvidia_root, pkg, "bin")
+            key = os.path.normcase(bin_dir)
+            if key in seen or not os.path.isdir(bin_dir):
+                continue
+            seen.add(key)
+            try:
+                os.add_dll_directory(bin_dir)
+                added.append(bin_dir)
+            except OSError:
+                pass
+    return added
 
 
 def detect_device(requested):
@@ -230,9 +272,14 @@ def main():
         if not files:
             return 1
 
+    # ctranslate2 を import する前に DLL 検索パスを整える
+    dll_dirs = add_nvidia_dll_dirs()
+
     device, reason = detect_device(args.device)
     compute_type = args.compute_type or default_compute_type(device)
     print(f"デバイス: {device} ({reason})")
+    if device == "cuda" and dll_dirs:
+        print(f"CUDA DLL 検索パスを {len(dll_dirs)} 件追加しました")
     print(f"compute_type: {compute_type}")
     print(f"モデル: {args.model}")
     print("モデルを読み込み中... (初回はダウンロードで時間がかかります)", flush=True)
@@ -252,7 +299,12 @@ def main():
     except Exception as exc:
         print(f"[エラー] モデルの読み込みに失敗しました: {exc}", file=sys.stderr)
         if device == "cuda":
-            print("GPU で失敗した場合は --device cpu を試してください。", file=sys.stderr)
+            print("", file=sys.stderr)
+            print("GPU での読み込みに失敗しました。よくある原因:", file=sys.stderr)
+            print("  1. cuBLAS/cuDNN が未インストール", file=sys.stderr)
+            print("     pip install nvidia-cublas-cu12 nvidia-cudnn-cu12", file=sys.stderr)
+            print("  2. VRAM 不足 → --compute-type int8_float16 を試す", file=sys.stderr)
+            print("  3. 切り分け用に CPU で動かす → --device cpu", file=sys.stderr)
         return 1
 
     failed = 0

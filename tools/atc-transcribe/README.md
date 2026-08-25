@@ -54,8 +54,20 @@ NVIDIA GPU の有無を確認:
     nvidia-smi
 
 表示されれば `--device auto` が自動で `cuda` を選ぶ。
-CUDA 用の cuBLAS / cuDNN が無いと読み込みに失敗するので、その場合は:
+
+CUDA 用の cuBLAS / cuDNN が必要:
 
     pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
 
-それでも駄目なら `--device cpu` で動く。
+Windows では、pip で入れた `nvidia-*` パッケージの `bin` フォルダが DLL 検索パスに
+入らず、GPU があっても `cudnn_ops64_9.dll が見つかりません` で落ちることがある。
+本スクリプトは起動時に `os.add_dll_directory()` でこれらを自動追加するため、
+PATH を手で設定する必要はない。
+
+読み込みに失敗する場合の切り分け:
+
+| 症状 | 対処 |
+|---|---|
+| DLL が見つからない | 上記2パッケージが入っているか確認 |
+| VRAM 不足 (out of memory) | `--compute-type int8_float16` |
+| 原因不明 | `--device cpu` で動作するか確認 |
