@@ -143,9 +143,11 @@ def format_timestamp(seconds, sep=","):
 
 def transcribe_one(model, path, args):
     stem, _ = os.path.splitext(path)
-    ts_path = f"{stem}.txt"
-    plain_path = f"{stem}.plain.txt"
-    srt_path = f"{stem}.srt"
+    # プレビュー実行が本番の全文文字起こしを上書きしないよう、出力名を分ける
+    suffix = ".preview" if args.preview else ""
+    ts_path = f"{stem}{suffix}.txt"
+    plain_path = f"{stem}{suffix}.plain.txt"
+    srt_path = f"{stem}{suffix}.srt"
 
     print(f"\n=== {path} ===", flush=True)
     started = time.time()
@@ -183,6 +185,11 @@ def transcribe_one(model, path, args):
                 f"{text}\n"
             )
 
+        # segments はジェネレータなので、break した時点で以降の推論は走らない
+        if args.preview and len(lines) >= args.preview:
+            print(f"... --preview {args.preview} に達したので打ち切り", flush=True)
+            break
+
     with open(ts_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + ("\n" if lines else ""))
     written = [ts_path]
@@ -198,7 +205,11 @@ def transcribe_one(model, path, args):
         written.append(srt_path)
 
     elapsed = time.time() - started
-    speed = f" (実時間比 {duration / elapsed:.1f}x)" if duration and elapsed > 0 else ""
+    if args.preview:
+        # 途中で打ち切ったので全体の所要時間は測れていない
+        speed = " (プレビューのため実時間比は未測定)"
+    else:
+        speed = f" (実時間比 {duration / elapsed:.1f}x)" if duration and elapsed > 0 else ""
     print(f"--- {len(lines)} セグメント / {elapsed:.1f}s{speed}", flush=True)
     for p in written:
         print(f"    出力: {p}", flush=True)
@@ -242,6 +253,14 @@ def main():
         help="タイムスタンプなしのプレーンテキスト (<名前>.plain.txt) も出力する",
     )
     parser.add_argument("--srt", action="store_true", help="字幕ファイル (<名前>.srt) も出力する")
+    parser.add_argument(
+        "--preview",
+        type=int,
+        metavar="N",
+        default=0,
+        help="先頭 N セグメントだけ処理して打ち切る。精度の下見用。"
+        "出力は <名前>.preview.txt となり本番の結果を上書きしない",
+    )
     parser.add_argument("--list", action="store_true", help="フォルダ内の対象ファイルを一覧表示して終了")
 
     args = parser.parse_args()

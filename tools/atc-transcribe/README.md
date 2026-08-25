@@ -21,8 +21,12 @@ ffmpeg が PATH に必要(mp4/mp3 のデコードに使う)。
     python transcribe.py 01-02.mp3           # 1ファイル
     python transcribe.py "*.mp3" --plain     # まとめて + プレーンテキストも出力
     python transcribe.py rec.mp4 --device cuda --srt
+    python transcribe.py long.mp3 --preview 15   # 冒頭15セグメントだけ下見
 
 引数なしで実行すると、フォルダ内の候補ファイルを一覧表示する。
+
+`ffmpeg` の実行ファイルは不要。faster-whisper は PyAV(libav 同梱)でデコードするため、
+mp3/mp4 ともそのまま読める。
 
 ## 出力
 
@@ -36,6 +40,9 @@ ffmpeg が PATH に必要(mp4/mp3 のデコードに使う)。
 
 同名ファイルがあると上書きされる。
 
+`--preview N` を付けた場合は `01-02.preview.txt` のように別名で出力されるため、
+下見の結果が本番の全文文字起こしを潰すことはない。
+
 ## 主なオプション
 
 | オプション | 既定 | 説明 |
@@ -46,6 +53,7 @@ ffmpeg が PATH に必要(mp4/mp3 のデコードに使う)。
 | `--language` | `en` | 言語コード |
 | `--beam-size` | `5` | 大きいほど精度↑速度↓ |
 | `--no-vad` | off | VAD フィルタを無効化 |
+| `--preview N` | off | 先頭 N セグメントで打ち切る(下見用) |
 
 ## GPU を使う
 
