@@ -714,9 +714,12 @@ function deOcr(t){
 
 /* ---- FLIGHT PLAN 確認ページ用の抜き出し -------------------------------
    NAVIGATION LOG の (WP)POS 欄が緯度経度の地点かどうか。
-   プランでは 54N00 / 58N10（= 58N 010W）のように書かれる。
-   ETP1 / EXP1 / -CZEG のような挿入点や、IGSOM のような名前付きの地点は違う。 */
-const RE_LLNAME = /^(?:\d{2,4}[NS]\d{1,3}[EW]?|\d{2,4}[NS]|[NS]\d{2,4}[EW]\d{1,5})$/;
+   プランでは真ん中の 1 文字を挟んだ短い形で書かれる。
+     54N00 = 54N 100W   58N10 = 58N 110W   49N70 = 49N 170W   （西経は N）
+     41E60 = 41N 160E   45E70 = 45N 170E   47E80 = 47N 180E   （東経は E）
+   ATS FPL 側の 41N160E / 49N170W のような正式な形も拾う。
+   ETP1 / EXP1 / -CZEG のような挿入点や、LEPKI のような名前付きの地点は違う。 */
+const RE_LLNAME = /^(?:\d{2,4}[NSEW]\d{1,3}[EW]?|\d{2,4}[NS]|[NS]\d{2,4}[EW]\d{1,5})$/;
 function isLatLongWpt(name){
   return RE_LLNAME.test(String(name==null?'':name).toUpperCase().replace(/\s+/g,''));
 }
