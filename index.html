@@ -740,37 +740,58 @@ function atsFromLines(lines){
 
 /* 緯度経度の地点だけを残し、間に挟まる ETP / EXP / FIR 境界などの DIST を
    次の緯度経度地点に足し込んで、緯度経度の地点どうしの区間距離を作る。
+   両端は合計にしない。いちばん上は直前の WPT から、いちばん下は最後の
+   緯度経度地点から直後の WPT までの、1 区間だけを出す。
    REM（残距離）の差でも同じ値が出るので、両方を突き合わせて食い違いを拾う。 */
 function latLongLegs(wps){
-  const rows = [];
-  let via = [], sum = 0, whole = true, fromName = null, fromRem = null;
-  (wps||[]).forEach((w,i)=>{
-    const d = parseInt(w.dist,10);
-    if(isNaN(d)) whole = false; else sum += d;
-    if(!isLatLongWpt(w.name)){ via.push(w.name); return; }
-    const rem = parseInt(w.rem,10);
-    const byRem = (fromRem != null && !isNaN(rem)) ? fromRem - rem : null;
-    rows.push({
-      i, name:w.name, pos:w.pos, from:fromName,
-      dist: whole ? sum : null,
-      byRem,
-      rem: isNaN(rem) ? null : rem,
-      via: via.slice()
-    });
-    via = []; sum = 0; whole = true;
-    fromName = w.name; fromRem = isNaN(rem) ? null : rem;
-  });
-  /* 最後の緯度経度地点から着陸地までの残り。区間の合計が総距離と合うか見るために足す。 */
-  if(rows.length && via.length){
-    const last = wps[wps.length-1], rem = parseInt(last.rem,10);
-    const name = via.pop();                             /* 着陸地そのもの */
-    rows.push({
-      i: wps.length-1, name, pos:last.pos, from:fromName, tail:true,
-      dist: whole ? sum : null,
-      byRem: (fromRem != null && !isNaN(rem)) ? fromRem - rem : null,
-      rem: isNaN(rem) ? null : rem,
+  const list = wps || [];
+  const num  = v => { const n = parseInt(v,10); return isNaN(n) ? null : n; };
+  const at   = [];
+  list.forEach((w,i) => { if(isLatLongWpt(w.name)) at.push(i); });
+  if(!at.length) return [];
+
+  /* fromI の地点から i の地点までの 1 行を作る */
+  const row = (i, fromI, via, dist) => {
+    const w = list[i], f = (fromI == null) ? null : list[fromI];
+    const a = f ? num(f.rem) : null, b = num(w.rem);
+    return {
+      i, name:w.name, pos:w.pos,
+      from: f ? f.name : null,            /* null = 出発地 */
+      dist,
+      byRem: (a != null && b != null) ? a - b : null,
+      rem: b,
       via
-    });
+    };
+  };
+
+  const rows = [];
+  /* 1 本目: 直前の WPT からの 1 区間だけ（出発地からの合計にはしない） */
+  const head = at[0];
+  const lead = row(head, head > 0 ? head - 1 : null, [], num(list[head].dist));
+  lead.lead = true;
+  rows.push(lead);
+
+  /* 2 本目から先: 手前の緯度経度地点までさかのぼって足し込む */
+  for(let k = 1; k < at.length; k++){
+    const from = at[k-1], to = at[k];
+    let sum = 0, whole = true;
+    const via = [];
+    for(let i = from + 1; i <= to; i++){
+      const d = num(list[i].dist);
+      if(d == null) whole = false; else sum += d;
+      if(i < to) via.push(list[i].name);
+    }
+    const r = row(to, from, via, whole ? sum : null);
+    r.span = true;                        /* 緯度経度どうしの区間 */
+    rows.push(r);
+  }
+
+  /* 最後: いちばん下の緯度経度地点から、直後の WPT までの 1 区間だけ */
+  const tail = at[at.length-1];
+  if(tail + 1 < list.length){
+    const r = row(tail + 1, tail, [], num(list[tail+1].dist));
+    r.tail = true;
+    rows.push(r);
   }
   return rows;
 }
@@ -1409,9 +1430,8 @@ function fplLegs(info, wps){
            '洋上のプランを読み込むと、緯度経度の地点どうしの区間距離を出します。</div>';
 
   const VIA = 4;
-  let total = 0, gaps = 0;
+  let gaps = 0;
   const body = rows.map(r => {
-    if(r.dist != null) total += r.dist;
     const bad = (r.dist != null && r.byRem != null && r.dist !== r.byRem);
     if(bad) gaps++;
     const via = r.via.length
@@ -1419,35 +1439,55 @@ function fplLegs(info, wps){
         esc(r.via.slice(0, VIA).join(' · ')) +
         (r.via.length > VIA ? ' 他 ' + (r.via.length - VIA) : '') + '</span>'
       : '';
+    /* 両端の 1 区間は、緯度経度どうしの区間と区別できるように印を添える */
+    const edge = r.lead ? '<span class="via">直前の WPT から</span>'
+               : r.tail ? '<span class="via">直後の WPT まで</span>' : '';
     return '<tr class="' + (r.tail ? 'tail ' : '') + (bad ? 'bad' : '') + '">' +
       '<td class="n">' + String(r.i + 1).padStart(2,'0') + '</td>' +
       '<td class="w">' + esc(r.name) + '</td>' +
       '<td class="p">' + esc(r.pos || '') + '</td>' +
-      '<td class="g">' + esc(r.from || info.dep || '出発地') + ' → ' + esc(r.name) + via + '</td>' +
+      '<td class="g">' + esc(r.from || info.dep || '出発地') + ' → ' + esc(r.name) +
+        via + edge + '</td>' +
       '<td class="d">' + (r.dist != null ? r.dist : '—') +
         (bad ? '<span class="gap">REM の差は ' + r.byRem + '</span>' : '') + '</td>' +
       '<td class="r">' + (r.rem != null ? r.rem : '—') + '</td></tr>';
   }).join('');
 
-  const plan = parseInt(info.planNm, 10);
-  let sum = '区間の合計 ' + total + ' NM';
-  if(!isNaN(plan)) sum += (plan === total)
-    ? '　<b>= プラン総距離 ' + plan + ' NM</b>'
-    : '　<i>プラン総距離 ' + plan + ' NM と ' + Math.abs(plan - total) + ' NM 違います</i>';
+  /* 合計は「いちばん上の緯度経度地点から、いちばん下の緯度経度地点まで」。
+     両端の 1 区間はその外側なので入れない。 */
+  const ll    = rows.filter(r => !r.tail);
+  const head  = ll[0], last = ll[ll.length-1];
+  const spans = rows.filter(r => r.span);
+  const total = spans.reduce((s,r) => s + (r.dist || 0), 0);
+  const whole = spans.length && spans.every(r => r.dist != null);
+  const byRem = (head && last && head !== last && head.rem != null && last.rem != null)
+              ? head.rem - last.rem : null;
+
+  let foot;
+  if(!spans.length){
+    foot = '<tfoot><tr><td colspan="6" class="fp-sum">' +
+           '緯度経度の地点は 1 つだけです</td></tr></tfoot>';
+  }else{
+    let sum = esc(head.name) + ' → ' + esc(last.name) + ' の合計 ' +
+              (whole ? total + ' NM' : '—');
+    if(whole && byRem != null) sum += (byRem === total)
+      ? '　<b>= REM の差 ' + byRem + ' NM</b>'
+      : '　<i>REM の差は ' + byRem + ' NM</i>';
+    foot = '<tfoot><tr><td colspan="4" class="fp-sum">' + sum + '</td>' +
+           '<td class="d">' + (whole ? total : '—') + '</td><td class="r"></td></tr></tfoot>';
+  }
 
   return '<table class="fp-tb"><thead><tr>' +
       '<th>#</th><th>WPT</th><th class="p">LAT/LONG</th><th>区間</th>' +
       '<th style="text-align:right">DIST</th><th style="text-align:right">REM</th>' +
-    '</tr></thead><tbody>' + body + '</tbody>' +
-    '<tfoot><tr><td colspan="4" class="fp-sum">' + sum + '</td>' +
-      '<td class="d">' + total + '</td><td class="r"></td></tr></tfoot></table>' +
+    '</tr></thead><tbody>' + body + '</tbody>' + foot + '</table>' +
     '<div class="fp-none" style="margin-top:8px">' +
       'DIST は手前の緯度経度地点からの距離です。間に挟まる ETP / EXP / FIR 境界などの ' +
       'DIST を足し込んで、「経由」に足した地点を出しています。' +
+      '<br>いちばん上の行だけは<b>直前の WPT から</b>、いちばん下の行は最後の緯度経度地点から' +
+      '<b>直後の WPT まで</b>の、1 区間だけの距離です。合計には入れていません。' +
       (gaps ? '<br><span style="color:var(--late)">⚠ ' + gaps +
-              ' 区間で DIST の合計と REM（残距離）の差が一致しません。読み取りを確認してください。</span>' : '') +
-      (!isNaN(plan) && plan !== total ?
-        '<br>※ PDF が途中のページだけのときも合計は総距離と合いません。' : '') +
+              ' 区間で DIST と REM（残距離）の差が一致しません。読み取りを確認してください。</span>' : '') +
     '</div>';
 }
 
