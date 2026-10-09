@@ -363,10 +363,14 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
 }
 
 /* ---------- 次ページ: FLIGHT PLAN 確認 ---------- */
-/* 出発前に必ず開くページなので、他より一回り大きくする */
+/* 出発前に必ず開くページなので、他より一回り大きくする。
+   行き帰りで字数が変わってもボタンの位置がずれないよう、幅を決めておく。 */
 .btn.fpl{border-color:var(--fpl);color:var(--fpl);border-width:2px;
-  font-size:18px;min-height:52px;padding:8px 26px;letter-spacing:.14em}
+  font-size:18px;min-height:52px;padding:8px 22px;letter-spacing:.14em;min-width:230px}
 .btn.fpl:hover{border-color:var(--fpl);background:rgba(154,183,255,.12)}
+/* 確認ページにいる間は、押すと戻ることが分かるように塗る */
+.btn.fpl.back{background:var(--fpl);border-color:var(--fpl);color:var(--bg)}
+.btn.fpl.back:hover{background:var(--fpl);filter:brightness(1.08)}
 /* .btn.big が display を持っているので、hidden だけでは消えない */
 .btn[hidden]{display:none !important}
 #fplpage{max-width:1400px;margin:0 auto;padding:4px 10px 90px}
@@ -1542,7 +1546,42 @@ function renderFpl(){
   $('#fpLegs').innerHTML  = fplLegs(STATE.info || {}, STATE.wps);
   page.hidden = false;
   if(btn) btn.hidden = false;
+  fplBtnSync();
 }
+
+/* ヘッダーのボタンは 1 つで行き帰りを兼ねる。確認ページに入っていれば
+   「NAVLOG へ戻る」、ワークシートにいれば「FPL確認」。
+   指でスクロールして移動したときも表示が合うように、位置から決める。 */
+function fplAtPage(){
+  const p = $('#fplpage');
+  if(!p || p.hidden) return false;
+  const hdr = $('#topbar') ? $('#topbar').getBoundingClientRect().height : 0;
+  return p.getBoundingClientRect().top <= hdr + 8;
+}
+function fplBtnSync(){
+  const b = $('#btnFpl');
+  if(!b || b.hidden) return;
+  const back = fplAtPage();
+  if(back === b.classList.contains('back')) return;      /* 変わっていなければ触らない */
+  b.classList.toggle('back', back);
+  b.textContent = back ? '↑ NAVLOG へ戻る' : '📋 FPL確認';
+  b.title = back ? 'ワークシートの先頭（WPT の確認）へ戻る'
+                 : 'FLIGHT PLAN 確認ページ（PLAN CODE / ATS FPL / 緯度経度の区間距離）へ';
+}
+function fplJump(){
+  const p = $('#fplpage');
+  if(!p || p.hidden) return;
+  if(fplAtPage()){ window.scrollTo({top:0, behavior:'smooth'}); return; }
+  /* ヘッダーは画面に貼り付くので、その分だけ手前で止める */
+  const hdr = $('#topbar') ? $('#topbar').getBoundingClientRect().height : 0;
+  window.scrollTo({top: Math.max(0, p.offsetTop - hdr - 6), behavior:'smooth'});
+}
+let fplSyncQueued = false;
+window.addEventListener('scroll', ()=>{
+  if(fplSyncQueued) return;
+  fplSyncQueued = true;
+  requestAnimationFrame(()=>{ fplSyncQueued = false; fplBtnSync(); });
+}, {passive:true});
 
 /* =======================================================================
    Import / export
@@ -3311,9 +3350,8 @@ $('#btnPaste').onclick  = ()=>{ const w=$('#pasteWrap'); w.style.display = w.sty
 $('#btnPasteGo').onclick= ()=>{ const t=$('#pasteArea').value; if(t.trim()) load(parseNavlog(t)); };
 $('#btnSample').onclick = ()=> load(parseNavlog(SAMPLE));
 $('#btnNew').onclick    = ()=>{ $('#loader').style.display='block'; window.scrollTo({top:0,behavior:'smooth'}); };
-/* 次ページ（FLIGHT PLAN 確認）へ / ワークシートへ戻る */
-$('#btnFpl').onclick     = ()=>{ const p = $('#fplpage');
-  if(p && !p.hidden) p.scrollIntoView({block:'start', behavior:'smooth'}); };
+/* 次ページ（FLIGHT PLAN 確認）へ / ワークシートへ戻る — ボタン 1 つで往復する */
+$('#btnFpl').onclick     = fplJump;
 $('#btnFplBack').onclick = ()=> window.scrollTo({top:0, behavior:'smooth'});
 
 $('#toff').addEventListener('input', ()=>{ recompute(); scheduleSave(); });
