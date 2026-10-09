@@ -363,7 +363,9 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
 }
 
 /* ---------- 次ページ: FLIGHT PLAN 確認 ---------- */
-.btn.fpl{border-color:var(--fpl);color:var(--fpl)}
+/* 出発前に必ず開くページなので、他より一回り大きくする */
+.btn.fpl{border-color:var(--fpl);color:var(--fpl);border-width:2px;
+  font-size:18px;min-height:52px;padding:8px 26px;letter-spacing:.14em}
 .btn.fpl:hover{border-color:var(--fpl);background:rgba(154,183,255,.12)}
 /* .btn.big が display を持っているので、hidden だけでは消えない */
 .btn[hidden]{display:none !important}
@@ -377,7 +379,12 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
 .fp-card{background:var(--panel);border:1px solid var(--rule);border-radius:10px;
   padding:10px 12px;box-shadow:var(--shadow);min-width:0}
 .fp-card>.k{display:block;font-size:9.5px;letter-spacing:.16em;color:var(--plan);opacity:.8}
-.fp-code{font-size:40px;font-weight:700;letter-spacing:.1em;line-height:1.15;color:var(--ink)}
+.fp-code{font-size:40px;font-weight:700;letter-spacing:.1em;line-height:1.15;color:var(--ink);
+  display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+/* JDP（計算番号）は PLAN CODE の隣に、一回り小さく添える */
+.fp-jdp{font-size:19px;letter-spacing:.08em;color:var(--fpl);white-space:nowrap}
+.fp-jdp i{display:block;font-style:normal;font-size:9.5px;letter-spacing:.16em;
+  color:var(--plan);opacity:.8}
 .fp-src{font-size:11px;color:var(--plan);opacity:.8;margin-top:2px;word-break:break-all}
 .fp-head{font-size:19px;font-weight:700;letter-spacing:.08em;color:var(--fpl);margin:1px 0 4px}
 .fp-route{font-size:13.5px;line-height:1.75;letter-spacing:.06em;word-break:break-word;
@@ -466,7 +473,9 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
   .fp-cards{grid-template-columns:150pt 1fr;gap:6pt;margin-bottom:8pt}
   .fp-card{background:#fff;border:1pt solid #333;border-radius:3pt;padding:4pt 6pt;box-shadow:none}
   .fp-card>.k{font-size:6pt;color:#555}
-  .fp-code{font-size:26pt;color:#000}
+  .fp-code{font-size:26pt;color:#000;gap:10pt}
+  .fp-jdp{font-size:13pt;color:#000}
+  .fp-jdp i{font-size:6pt;color:#555}
   .fp-src,.fp-none,.fp-raw{font-size:7pt;color:#333;opacity:1}
   .fp-head{font-size:12pt;color:#000}
   .fp-route{font-size:9pt;line-height:1.6;color:#000}
@@ -709,9 +718,10 @@ function isLatLongWpt(name){
 }
 
 /* ATS FPL の 15 項。-N0490F300 で始まり、次の「-」で始まる項の手前までが
-   速度 / 高度と経路。PDF は決まった桁で折り返すので、続きの行が行頭から
-   始まっていれば語の途中で切れたものとして空白を入れずに繋ぐ
-   （プランの ROUTE 欄で "ELLAM, T" + "HEN UPR" → "ELLAM, THEN UPR" になるのと同じ）。 */
+   速度 / 高度と経路。この節は語の区切りで折り返すので、続きの行は空白で繋ぐ
+   （空白無しで繋ぐと A590 + PTZGR → "A590PTZGR" のように別々の地点が
+   くっついてしまう）。例外は速度 / 高度の変更点で、"NOLAX/" と
+   "N0506F310" のように「/」で切れたときだけ空白を入れずに繋ぐ。 */
 const RE_ATS_HEAD = /-\s*([NM])(\d{3,4})\s*F(\d{3})(?=\s+[A-Z0-9])/;
 function atsFromLines(lines){
   for(let i=0;i<lines.length;i++){
@@ -725,7 +735,8 @@ function atsFromLines(lines){
       if(/^\s*[-()]/.test(l)) break;                    /* 次の項 */
       if(/^\s*(NAVIGATION|FUEL|FL\s+SPD|TC\s+GS|MC\s+TAS|JDP:)/.test(l)) break;
       src.push(l);
-      body += (/^\s/.test(l) ? ' ' : '') + l.trim();
+      const t = l.trim();
+      body += (body.slice(-1) === '/' || t.charAt(0) === '/') ? t : ' ' + t;
     }
     return {
       head:  m[1] + m[2] + 'F' + m[3],
@@ -738,10 +749,19 @@ function atsFromLines(lines){
   return null;
 }
 
+/* TOC / TOD / ETP / EEP / EXP と FIR 境界（-CZWG など）は、プランの都合で
+   挟まれた点で、ATS FPL の経路には出てこない。区間の端には使わない。 */
+const RE_MARKWPT = /^(TOC|TOD|ETP\d?|EEP\d?|EXP\d?)$/;
+function isRouteWpt(name){
+  const t = String(name==null?'':name).toUpperCase().trim();
+  return !!t && t.charAt(0) !== '-' && !RE_MARKWPT.test(t);
+}
+
 /* 緯度経度の地点だけを残し、間に挟まる ETP / EXP / FIR 境界などの DIST を
    次の緯度経度地点に足し込んで、緯度経度の地点どうしの区間距離を作る。
-   両端は合計にしない。いちばん上は直前の WPT から、いちばん下は最後の
-   緯度経度地点から直後の WPT までの、1 区間だけを出す。
+   両端は合計にしない。いちばん上は直前の地点から、いちばん下は最後の
+   緯度経度地点から直後の地点までの、1 区間だけを出す。端も挿入点は飛ばして
+   経路上の地点（IGSOM や YRL）に着ける。
    REM（残距離）の差でも同じ値が出るので、両方を突き合わせて食い違いを拾う。 */
 function latLongLegs(wps){
   const list = wps || [];
@@ -764,32 +784,45 @@ function latLongLegs(wps){
     };
   };
 
+  /* from の次から to までの DIST を足す。間に挟まった点は「経由」に回す。 */
+  const legTo = (from, to) => {
+    let sum = 0, whole = true;
+    const via = [];
+    for(let i = (from == null ? 0 : from + 1); i <= to; i++){
+      const d = num(list[i].dist);
+      if(d == null) whole = false; else sum += d;
+      if(i < to) via.push(list[i].name);
+    }
+    return {dist: whole ? sum : null, via};
+  };
+
   const rows = [];
-  /* 1 本目: 直前の WPT からの 1 区間だけ（出発地からの合計にはしない） */
+  /* 1 本目: 直前の地点からの 1 区間だけ（出発地からの合計にはしない）。
+     ETP / EXP / FIR 境界が直前に挟まっていたら、それは飛ばして
+     経路上の地点（IGSOM など）まで戻る。 */
   const head = at[0];
-  const lead = row(head, head > 0 ? head - 1 : null, [], num(list[head].dist));
+  let before = head - 1;
+  while(before >= 0 && !isRouteWpt(list[before].name)) before--;
+  const lead = Object.assign(row(head, before >= 0 ? before : null, [], null),
+                             legTo(before >= 0 ? before : null, head));
   lead.lead = true;
   rows.push(lead);
 
   /* 2 本目から先: 手前の緯度経度地点までさかのぼって足し込む */
   for(let k = 1; k < at.length; k++){
     const from = at[k-1], to = at[k];
-    let sum = 0, whole = true;
-    const via = [];
-    for(let i = from + 1; i <= to; i++){
-      const d = num(list[i].dist);
-      if(d == null) whole = false; else sum += d;
-      if(i < to) via.push(list[i].name);
-    }
-    const r = row(to, from, via, whole ? sum : null);
+    const r = Object.assign(row(to, from, [], null), legTo(from, to));
     r.span = true;                        /* 緯度経度どうしの区間 */
     rows.push(r);
   }
 
-  /* 最後: いちばん下の緯度経度地点から、直後の WPT までの 1 区間だけ */
+  /* 最後: いちばん下の緯度経度地点から、直後の地点までの 1 区間だけ。
+     こちらも挿入点は飛ばして、経路上の地点（YRL など）まで進む。 */
   const tail = at[at.length-1];
   if(tail + 1 < list.length){
-    const r = row(tail + 1, tail, [], num(list[tail+1].dist));
+    let after = tail + 1;
+    while(after < list.length - 1 && !isRouteWpt(list[after].name)) after++;
+    const r = Object.assign(row(after, tail, [], null), legTo(tail, after));
     r.tail = true;
     rows.push(r);
   }
@@ -822,6 +855,8 @@ function parseNavlog(raw){
   }
   /* 上部の「PLN CD」表にも同じ番号が出る。食い違いを出せるよう別に控えておく。 */
   if((m=/PLN\s+CD\b[^\n]*\n\s*(\d{1,3})\b/.exec(doc))) info.planCd2 = m[1];
+  /* 「JDP:PN005606 COMPUTED 0139Z …」の計算番号。PLAN CODE と並べて出す。 */
+  if((m=/\bJDP\s*[:：]\s*([A-Z0-9]{4,})/.exec(doc))) info.jdp = m[1];
   /* 「FL SPD DIST ROUTE」表の出発-到着行にある総距離（6212NM）。区間合計の照合に使う。 */
   if((m=/^\s*([A-Z]{4})-([A-Z]{4})\s+\S+\s+\S+\s+(\d{3,5})NM/m.exec(doc))) info.planNm = m[3];
   /* ATS FPL の 15 項（-N0490F300 …） */
@@ -1397,7 +1432,9 @@ function renderEta(list){
 function fplCards(info){
   let a = '<div class="fp-card"><span class="k">PLAN CODE</span>';
   if(info.planCode){
-    a += '<div class="fp-code">' + esc(info.planCode) + '</div>' +
+    a += '<div class="fp-code">' + esc(info.planCode) +
+         (info.jdp ? '<span class="fp-jdp"><i>JDP</i>' + esc(info.jdp) + '</span>' : '') +
+         '</div>' +
          '<div class="fp-src">' + esc(info.planHdr || '') +
          (info.planDay ? '　（末尾 ' + esc(info.planDay) + ' は日付の日）' : '') + '</div>';
     if(info.planCd2 && info.planCd2 !== info.planCode)
@@ -1405,7 +1442,8 @@ function fplCards(info){
            ' です。見出しと食い違っています</div>';
   }else{
     a += '<div class="fp-none">見出しの <b>ANA0159/50/18</b> のような行が見つかりませんでした。' +
-         'PDF の 1 ページ目から読み込むと拾えます。</div>';
+         'PDF の 1 ページ目から読み込むと拾えます。</div>' +
+         (info.jdp ? '<div class="fp-src"><b>JDP</b> ' + esc(info.jdp) + '</div>' : '');
   }
   a += '</div>';
 
@@ -1486,6 +1524,7 @@ function fplLegs(info, wps){
       'DIST を足し込んで、「経由」に足した地点を出しています。' +
       '<br>いちばん上の行だけは<b>直前の WPT から</b>、いちばん下の行は最後の緯度経度地点から' +
       '<b>直後の WPT まで</b>の、1 区間だけの距離です。合計には入れていません。' +
+      'この両端には ETP / EXP / FIR 境界は使わず、その先の経路上の地点に着けます。' +
       (gaps ? '<br><span style="color:var(--late)">⚠ ' + gaps +
               ' 区間で DIST と REM（残距離）の差が一致しません。読み取りを確認してください。</span>' : '') +
     '</div>';
