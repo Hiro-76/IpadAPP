@@ -33,6 +33,7 @@
   --xfer:#48bbe8;        /* 引き継ぎ */
   --etops:#ff86b3;       /* ETOPS 代替空港 */
   --cdu:#7fe3b0;         /* CDU 読み取り */
+  --fpl:#9ab7ff;         /* FLIGHT PLAN 確認ページ */
   --text:#dbe7f3;
   --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.35);
 }
@@ -49,6 +50,7 @@ html[data-theme="day"]{
   --xfer:#0b6ea8;
   --etops:#b0006a;
   --cdu:#0d7a4a;
+  --fpl:#1f4fb0;
   --text:#16202b;
   --shadow:0 1px 0 rgba(0,0,0,.02), 0 6px 18px rgba(20,40,60,.10);
 }
@@ -360,6 +362,58 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
   .slot .k{font-size:10px;letter-spacing:.04em}
 }
 
+/* ---------- 次ページ: FLIGHT PLAN 確認 ---------- */
+.btn.fpl{border-color:var(--fpl);color:var(--fpl)}
+.btn.fpl:hover{border-color:var(--fpl);background:rgba(154,183,255,.12)}
+/* .btn.big が display を持っているので、hidden だけでは消えない */
+.btn[hidden]{display:none !important}
+#fplpage{max-width:1400px;margin:0 auto;padding:4px 10px 90px}
+#fplpage[hidden]{display:none}
+.fp-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  border-top:2px solid var(--fpl);padding:14px 2px 10px}
+.fp-bar h2{margin:0;font-size:16px;font-weight:700;letter-spacing:.18em;color:var(--fpl)}
+.fp-bar .spacer{flex:1}
+.fp-cards{display:grid;grid-template-columns:minmax(200px,260px) 1fr;gap:10px;margin:0 0 14px}
+.fp-card{background:var(--panel);border:1px solid var(--rule);border-radius:10px;
+  padding:10px 12px;box-shadow:var(--shadow);min-width:0}
+.fp-card>.k{display:block;font-size:9.5px;letter-spacing:.16em;color:var(--plan);opacity:.8}
+.fp-code{font-size:40px;font-weight:700;letter-spacing:.1em;line-height:1.15;color:var(--ink)}
+.fp-src{font-size:11px;color:var(--plan);opacity:.8;margin-top:2px;word-break:break-all}
+.fp-head{font-size:19px;font-weight:700;letter-spacing:.08em;color:var(--fpl);margin:1px 0 4px}
+.fp-route{font-size:13.5px;line-height:1.75;letter-spacing:.06em;word-break:break-word;
+  white-space:pre-wrap}
+.fp-none{color:var(--plan);opacity:.75;font-size:12px;line-height:1.7}
+.fp-warn{color:var(--late);font-size:11.5px;margin-top:4px;line-height:1.5}
+.fp-raw{margin-top:6px;font-size:11px;color:var(--plan)}
+.fp-raw summary{cursor:pointer;opacity:.8;letter-spacing:.1em}
+.fp-raw pre{margin:4px 0 0;padding:6px 8px;background:var(--panel2);border:1px solid var(--rule);
+  border-radius:6px;overflow-x:auto;font-size:11px;line-height:1.6;color:var(--plan)}
+.fp-tb{width:100%;border-collapse:collapse;font-size:13px}
+.fp-tb th{font-size:9.5px;letter-spacing:.14em;color:var(--plan);opacity:.85;font-weight:400;
+  text-align:left;padding:4px 8px;border-bottom:1px solid var(--rule);white-space:nowrap}
+.fp-tb td{padding:7px 8px;border-bottom:1px solid var(--rule);vertical-align:top}
+.fp-tb .n{color:var(--plan);opacity:.6;font-size:10px;white-space:nowrap}
+.fp-tb .w{font-size:17px;font-weight:700;letter-spacing:.1em;white-space:nowrap}
+.fp-tb .p{font-size:11.5px;color:var(--plan);white-space:nowrap}
+.fp-tb .g{font-size:12px;color:var(--plan);min-width:0}
+.fp-tb .d{font-size:20px;font-weight:700;letter-spacing:.06em;text-align:right;
+  white-space:nowrap;color:var(--ink)}
+.fp-tb .r{font-size:12px;color:var(--plan);text-align:right;white-space:nowrap}
+.fp-tb .via{display:block;font-size:10.5px;opacity:.7;margin-top:3px;letter-spacing:.04em}
+.fp-tb tr.tail .w{color:var(--plan)}
+.fp-tb tr.bad td{background:rgba(255,123,107,.10)}
+.fp-tb .gap{display:block;font-size:10.5px;color:var(--late);margin-top:3px}
+.fp-tb tfoot td{padding:9px 8px;border-top:2px solid var(--rule);border-bottom:0;font-size:12px}
+.fp-tb tfoot .d{color:var(--text)}
+.fp-sum{color:var(--plan);letter-spacing:.1em}
+.fp-sum b{color:var(--ok);font-weight:400}
+.fp-sum i{color:var(--late);font-style:normal}
+@media (max-width:900px){
+  .fp-cards{grid-template-columns:1fr}
+  .fp-tb .p{display:none}
+  .fp-tb th.p{display:none}
+}
+
 /* ---------- print / save as PDF ---------- */
 #printHead{display:none}
 @media print{
@@ -404,6 +458,34 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
   .rule{display:none}
   /* 用紙からはみ出させない */
   html,body,#sheet,.strip,.entry{max-width:100%}
+
+  /* FLIGHT PLAN 確認は次の用紙から始める */
+  #fplpage{break-before:page;page-break-before:always;max-width:none;width:100%;padding:0}
+  .fp-bar{border-top:0;border-bottom:1.5px solid #000;padding:0 0 4px;margin-bottom:6px}
+  .fp-bar h2{font-size:12pt;letter-spacing:.1em;color:#000}
+  .fp-cards{grid-template-columns:150pt 1fr;gap:6pt;margin-bottom:8pt}
+  .fp-card{background:#fff;border:1pt solid #333;border-radius:3pt;padding:4pt 6pt;box-shadow:none}
+  .fp-card>.k{font-size:6pt;color:#555}
+  .fp-code{font-size:26pt;color:#000}
+  .fp-src,.fp-none,.fp-raw{font-size:7pt;color:#333;opacity:1}
+  .fp-head{font-size:12pt;color:#000}
+  .fp-route{font-size:9pt;line-height:1.6;color:#000}
+  .fp-raw{display:none}
+  .fp-warn{color:#000;font-weight:700;font-size:7.5pt}
+  .fp-tb{font-size:9pt}
+  .fp-tb th{font-size:6pt;color:#333;border-bottom:1pt solid #000;padding:2pt 4pt}
+  .fp-tb td{padding:3pt 4pt;border-bottom:.5pt solid #999;break-inside:avoid;page-break-inside:avoid}
+  .fp-tb .n{font-size:6pt;color:#555}
+  .fp-tb .w{font-size:11pt;color:#000}
+  .fp-tb .p,.fp-tb .g,.fp-tb .r{font-size:7.5pt;color:#333}
+  .fp-tb .d{font-size:13pt;color:#000}
+  .fp-tb .via{font-size:6.5pt;color:#555}
+  .fp-tb tr.bad td{background:#fff;outline:1pt solid #000}
+  .fp-tb .gap,.fp-sum i{color:#000;font-weight:700}
+  .fp-tb tfoot td{border-top:1pt solid #000}
+  .fp-sum,.fp-sum b{color:#000}
+  /* 画面では隠している欄も紙では出す */
+  .fp-tb .p,.fp-tb th.p{display:table-cell}
 }
 </style>
 <!-- pdf.js はローカル同梱（ネット接続不要 / Service Worker がキャッシュ） -->
@@ -437,6 +519,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
     <span class="spacer"></span>
     <button class="btn" id="btnCsv">CSV</button>
     <button class="btn" id="btnSave">JSON保存</button>
+    <button class="btn big fpl" id="btnFpl" title="FLIGHT PLAN 確認ページ（PLAN CODE / ATS FPL / 緯度経度の区間距離）へ" hidden>📋 FPL確認</button>
     <button class="btn big cdu" id="btnCdu" title="CDU の POS REPORT をカメラで読み取る">📷 CDU読込</button>
     <button class="btn big xfer" id="btnHandoff" title="記入内容を他の iPad へ渡す / 受け取る">⇄ 引き継ぎ</button>
     <button class="btn" id="btnLoad">JSON読込</button>
@@ -474,6 +557,17 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
 </div>
 <div id="printHead"><div class="ph1" id="phTitle"></div><div class="ph2" id="phSub"></div></div>
 <main id="sheet"></main>
+
+<!-- 次ページ: FLIGHT PLAN の確認。ワークシートの後ろに続き、印刷でも次の用紙から始まる -->
+<section id="fplpage" hidden>
+  <div class="fp-bar">
+    <h2>FLIGHT PLAN 確認</h2>
+    <span class="spacer"></span>
+    <button class="btn" id="btnFplBack" title="ワークシートの先頭へ戻る">↑ ワークシートへ</button>
+  </div>
+  <div class="fp-cards" id="fpCards"></div>
+  <div class="fp-legs" id="fpLegs"></div>
+</section>
 
 <div id="toast"><span id="toastMsg"></span><button class="btn" id="toastBtn" hidden></button></div>
 
@@ -605,9 +699,87 @@ function deOcr(t){
   return s;
 }
 
+/* ---- FLIGHT PLAN 確認ページ用の抜き出し -------------------------------
+   NAVIGATION LOG の (WP)POS 欄が緯度経度の地点かどうか。
+   プランでは 54N00 / 58N10（= 58N 010W）のように書かれる。
+   ETP1 / EXP1 / -CZEG のような挿入点や、IGSOM のような名前付きの地点は違う。 */
+const RE_LLNAME = /^(?:\d{2,4}[NS]\d{1,3}[EW]?|\d{2,4}[NS]|[NS]\d{2,4}[EW]\d{1,5})$/;
+function isLatLongWpt(name){
+  return RE_LLNAME.test(String(name==null?'':name).toUpperCase().replace(/\s+/g,''));
+}
+
+/* ATS FPL の 15 項。-N0490F300 で始まり、次の「-」で始まる項の手前までが
+   速度 / 高度と経路。PDF は決まった桁で折り返すので、続きの行が行頭から
+   始まっていれば語の途中で切れたものとして空白を入れずに繋ぐ
+   （プランの ROUTE 欄で "ELLAM, T" + "HEN UPR" → "ELLAM, THEN UPR" になるのと同じ）。 */
+const RE_ATS_HEAD = /-\s*([NM])(\d{3,4})\s*F(\d{3})(?=\s+[A-Z0-9])/;
+function atsFromLines(lines){
+  for(let i=0;i<lines.length;i++){
+    const m = RE_ATS_HEAD.exec(lines[i]);
+    if(!m) continue;
+    const src = [lines[i]];
+    let body = lines[i].slice(m.index).replace(RE_ATS_HEAD, '');
+    for(let j=i+1;j<lines.length;j++){
+      const l = lines[j];
+      if(!l.trim()) break;
+      if(/^\s*[-()]/.test(l)) break;                    /* 次の項 */
+      if(/^\s*(NAVIGATION|FUEL|FL\s+SPD|TC\s+GS|MC\s+TAS|JDP:)/.test(l)) break;
+      src.push(l);
+      body += (/^\s/.test(l) ? ' ' : '') + l.trim();
+    }
+    return {
+      head:  m[1] + m[2] + 'F' + m[3],
+      speed: m[1] + m[2],
+      level: 'F' + m[3],
+      route: body.replace(/\s+/g,' ').trim(),
+      src
+    };
+  }
+  return null;
+}
+
+/* 緯度経度の地点だけを残し、間に挟まる ETP / EXP / FIR 境界などの DIST を
+   次の緯度経度地点に足し込んで、緯度経度の地点どうしの区間距離を作る。
+   REM（残距離）の差でも同じ値が出るので、両方を突き合わせて食い違いを拾う。 */
+function latLongLegs(wps){
+  const rows = [];
+  let via = [], sum = 0, whole = true, fromName = null, fromRem = null;
+  (wps||[]).forEach((w,i)=>{
+    const d = parseInt(w.dist,10);
+    if(isNaN(d)) whole = false; else sum += d;
+    if(!isLatLongWpt(w.name)){ via.push(w.name); return; }
+    const rem = parseInt(w.rem,10);
+    const byRem = (fromRem != null && !isNaN(rem)) ? fromRem - rem : null;
+    rows.push({
+      i, name:w.name, pos:w.pos, from:fromName,
+      dist: whole ? sum : null,
+      byRem,
+      rem: isNaN(rem) ? null : rem,
+      via: via.slice()
+    });
+    via = []; sum = 0; whole = true;
+    fromName = w.name; fromRem = isNaN(rem) ? null : rem;
+  });
+  /* 最後の緯度経度地点から着陸地までの残り。区間の合計が総距離と合うか見るために足す。 */
+  if(rows.length && via.length){
+    const last = wps[wps.length-1], rem = parseInt(last.rem,10);
+    const name = via.pop();                             /* 着陸地そのもの */
+    rows.push({
+      i: wps.length-1, name, pos:last.pos, from:fromName, tail:true,
+      dist: whole ? sum : null,
+      byRem: (fromRem != null && !isNaN(rem)) ? fromRem - rem : null,
+      rem: isNaN(rem) ? null : rem,
+      via
+    });
+  }
+  return rows;
+}
+
 function parseNavlog(raw){
-  const all = deOcr(raw).replace(/\r/g,'').replace(/\f/g,'\n').split('\n')
-                .map(s => s.replace(/\u00a0/g,' ').trim());
+  const flat = deOcr(raw).replace(/\r/g,'').replace(/\f/g,'\n').replace(/\u00a0/g,' ');
+  /* 折り返しの判定に行頭の空白が要るので、前後を詰めていない行も持っておく */
+  const rawLines = flat.split('\n');
+  const all = rawLines.map(s => s.trim());
 
   // --- flight identity (scan whole document, harmless if absent) ---
   const doc = all.join('\n');
@@ -620,6 +792,19 @@ function parseNavlog(raw){
   }else if((m=/\b(ANA\d{3,4})\b/.exec(doc))){
     info.flight=m[1];                              /* 途中のページだけの PDF は見出しから拾う */
   }
+  /* 見出しの ANA0159/50/18 — 真ん中が PLAN CODE（用紙上部の「PLN CD」と同じ番号）、
+     最後は日付の日。FLIGHT PLAN 確認ページで使う。 */
+  if((m=/^\s*([A-Z]{3}\d{3,4})\/(\d{1,3})\/(\d{1,2})\b/m.exec(doc))){
+    info.planHdr  = m[1]+'/'+m[2]+'/'+m[3];
+    info.planCode = m[2];
+    info.planDay  = m[3];
+  }
+  /* 上部の「PLN CD」表にも同じ番号が出る。食い違いを出せるよう別に控えておく。 */
+  if((m=/PLN\s+CD\b[^\n]*\n\s*(\d{1,3})\b/.exec(doc))) info.planCd2 = m[1];
+  /* 「FL SPD DIST ROUTE」表の出発-到着行にある総距離（6212NM）。区間合計の照合に使う。 */
+  if((m=/^\s*([A-Z]{4})-([A-Z]{4})\s+\S+\s+\S+\s+(\d{3,5})NM/m.exec(doc))) info.planNm = m[3];
+  /* ATS FPL の 15 項（-N0490F300 …） */
+  info.ats = atsFromLines(rawLines);
   if((m=/STD\s+(\d{4})Z?/.exec(doc)))  info.std=m[1];
   if((m=/STA\s+(\d{4})Z?/.exec(doc)))  info.sta=m[1];
   if((m=/\b([A-Z]{2}\d{3}[A-Z])\b/.exec(doc))) info.reg=m[1];
@@ -821,6 +1006,7 @@ function load(parsed){
   $('#legend').classList.add('on');
   renderEtops();
   render();
+  renderFpl();          /* 次ページ: FLIGHT PLAN 確認 */
   setStatus('');
   saveSession();      /* オフライン再起動用に localStorage へ退避 */
 }
@@ -1178,6 +1364,105 @@ function renderEta(list){
       setTimeout(()=>s.classList.remove('resume'), 2600);
     };
   });
+}
+
+/* =======================================================================
+   次ページ: FLIGHT PLAN 確認
+   ・見出し ANA0159/50/18 の真ん中が PLAN CODE（用紙上部の「PLN CD」と同じ番号）
+   ・ATS FPL の 15 項（-N0490F300 …）
+   ・(WP)POS が緯度経度の地点だけを並べ、間に挟まる ETP / EXP / FIR 境界
+     （-CZWG など）の DIST を足し込んで、緯度経度の地点どうしの距離を出す
+   ======================================================================= */
+function fplCards(info){
+  let a = '<div class="fp-card"><span class="k">PLAN CODE</span>';
+  if(info.planCode){
+    a += '<div class="fp-code">' + esc(info.planCode) + '</div>' +
+         '<div class="fp-src">' + esc(info.planHdr || '') +
+         (info.planDay ? '　（末尾 ' + esc(info.planDay) + ' は日付の日）' : '') + '</div>';
+    if(info.planCd2 && info.planCd2 !== info.planCode)
+      a += '<div class="fp-warn">⚠ 上部の PLN CD は ' + esc(info.planCd2) +
+           ' です。見出しと食い違っています</div>';
+  }else{
+    a += '<div class="fp-none">見出しの <b>ANA0159/50/18</b> のような行が見つかりませんでした。' +
+         'PDF の 1 ページ目から読み込むと拾えます。</div>';
+  }
+  a += '</div>';
+
+  let b = '<div class="fp-card"><span class="k">ATS FPL</span>';
+  if(info.ats){
+    b += '<div class="fp-head">' + esc(info.ats.head) + '</div>' +
+         '<div class="fp-route">' + esc(info.ats.route) + '</div>' +
+         '<details class="fp-raw"><summary>PDF の原文を見る</summary><pre>' +
+         esc(info.ats.src.join('\n')) + '</pre></details>';
+  }else{
+    b += '<div class="fp-none"><b>-N0490F300</b> のような行が見つかりませんでした。' +
+         'ATS FPL が載っているページを含めて読み込んでください。</div>';
+  }
+  b += '</div>';
+  return a + b;
+}
+
+function fplLegs(info, wps){
+  const rows = latLongLegs(wps);
+  if(!rows.length)
+    return '<div class="fp-none">このプランには緯度経度の地点（<b>54N00</b> のような (WP)POS）がありません。<br>' +
+           '洋上のプランを読み込むと、緯度経度の地点どうしの区間距離を出します。</div>';
+
+  const VIA = 4;
+  let total = 0, gaps = 0;
+  const body = rows.map(r => {
+    if(r.dist != null) total += r.dist;
+    const bad = (r.dist != null && r.byRem != null && r.dist !== r.byRem);
+    if(bad) gaps++;
+    const via = r.via.length
+      ? '<span class="via" title="' + esc(r.via.join(' · ')) + '">経由 ' +
+        esc(r.via.slice(0, VIA).join(' · ')) +
+        (r.via.length > VIA ? ' 他 ' + (r.via.length - VIA) : '') + '</span>'
+      : '';
+    return '<tr class="' + (r.tail ? 'tail ' : '') + (bad ? 'bad' : '') + '">' +
+      '<td class="n">' + String(r.i + 1).padStart(2,'0') + '</td>' +
+      '<td class="w">' + esc(r.name) + '</td>' +
+      '<td class="p">' + esc(r.pos || '') + '</td>' +
+      '<td class="g">' + esc(r.from || info.dep || '出発地') + ' → ' + esc(r.name) + via + '</td>' +
+      '<td class="d">' + (r.dist != null ? r.dist : '—') +
+        (bad ? '<span class="gap">REM の差は ' + r.byRem + '</span>' : '') + '</td>' +
+      '<td class="r">' + (r.rem != null ? r.rem : '—') + '</td></tr>';
+  }).join('');
+
+  const plan = parseInt(info.planNm, 10);
+  let sum = '区間の合計 ' + total + ' NM';
+  if(!isNaN(plan)) sum += (plan === total)
+    ? '　<b>= プラン総距離 ' + plan + ' NM</b>'
+    : '　<i>プラン総距離 ' + plan + ' NM と ' + Math.abs(plan - total) + ' NM 違います</i>';
+
+  return '<table class="fp-tb"><thead><tr>' +
+      '<th>#</th><th>WPT</th><th class="p">LAT/LONG</th><th>区間</th>' +
+      '<th style="text-align:right">DIST</th><th style="text-align:right">REM</th>' +
+    '</tr></thead><tbody>' + body + '</tbody>' +
+    '<tfoot><tr><td colspan="4" class="fp-sum">' + sum + '</td>' +
+      '<td class="d">' + total + '</td><td class="r"></td></tr></tfoot></table>' +
+    '<div class="fp-none" style="margin-top:8px">' +
+      'DIST は手前の緯度経度地点からの距離です。間に挟まる ETP / EXP / FIR 境界などの ' +
+      'DIST を足し込んで、「経由」に足した地点を出しています。' +
+      (gaps ? '<br><span style="color:var(--late)">⚠ ' + gaps +
+              ' 区間で DIST の合計と REM（残距離）の差が一致しません。読み取りを確認してください。</span>' : '') +
+      (!isNaN(plan) && plan !== total ?
+        '<br>※ PDF が途中のページだけのときも合計は総距離と合いません。' : '') +
+    '</div>';
+}
+
+function renderFpl(){
+  const page = $('#fplpage'), btn = $('#btnFpl');
+  if(!page) return;
+  if(!STATE.wps.length){
+    page.hidden = true;
+    if(btn) btn.hidden = true;
+    return;
+  }
+  $('#fpCards').innerHTML = fplCards(STATE.info || {});
+  $('#fpLegs').innerHTML  = fplLegs(STATE.info || {}, STATE.wps);
+  page.hidden = false;
+  if(btn) btn.hidden = false;
 }
 
 /* =======================================================================
@@ -2947,6 +3232,10 @@ $('#btnPaste').onclick  = ()=>{ const w=$('#pasteWrap'); w.style.display = w.sty
 $('#btnPasteGo').onclick= ()=>{ const t=$('#pasteArea').value; if(t.trim()) load(parseNavlog(t)); };
 $('#btnSample').onclick = ()=> load(parseNavlog(SAMPLE));
 $('#btnNew').onclick    = ()=>{ $('#loader').style.display='block'; window.scrollTo({top:0,behavior:'smooth'}); };
+/* 次ページ（FLIGHT PLAN 確認）へ / ワークシートへ戻る */
+$('#btnFpl').onclick     = ()=>{ const p = $('#fplpage');
+  if(p && !p.hidden) p.scrollIntoView({block:'start', behavior:'smooth'}); };
+$('#btnFplBack').onclick = ()=> window.scrollTo({top:0, behavior:'smooth'});
 
 $('#toff').addEventListener('input', ()=>{ recompute(); scheduleSave(); });
 $('#toff').addEventListener('blur', e=>{ const m=clockToMin(e.target.value); if(m!=null){ e.target.value = minToClock(m).replace(':',''); recompute(); scheduleSave(); }});
