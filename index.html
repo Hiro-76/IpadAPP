@@ -136,6 +136,10 @@ html[data-theme="day"] .btn.theme{border-color:var(--ink);color:var(--ink)}
 html:not([data-theme="day"]) .btn.theme{border-color:var(--ink);color:var(--ink)}
 
 .btn.cdu{border-color:var(--cdu);color:var(--cdu)}
+/* PDF を読み込むところが出発点なので、塗りつぶして最初に目が行くようにする */
+.btn.load{background:var(--ink);border-color:var(--ink);color:#1f1403}
+html[data-theme="day"] .btn.load{color:#fff}
+.btn.load:hover{border-color:var(--ink);filter:brightness(1.08)}
 /* T/O に現在時刻を入れるボタン: 出発時に必ず押すので色でも目立たせる */
 .btn.now-to{background:var(--ok);border-color:var(--ok);color:#06210f}
 html[data-theme="day"] .btn.now-to{color:#fff}
@@ -363,14 +367,11 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
 }
 
 /* ---------- 次ページ: FLIGHT PLAN 確認 ---------- */
-/* 出発前に必ず開くページなので、他より一回り大きくする。
+/* 出発前に必ず開くページなので、他より一回り大きくし、塗りつぶして目立たせる。
    行き帰りで字数が変わってもボタンの位置がずれないよう、幅を決めておく。 */
-.btn.fpl{border-color:var(--fpl);color:var(--fpl);border-width:2px;
+.btn.fpl{background:var(--fpl);border-color:var(--fpl);color:var(--bg);border-width:2px;
   font-size:18px;min-height:52px;padding:8px 22px;letter-spacing:.14em;min-width:230px}
-.btn.fpl:hover{border-color:var(--fpl);background:rgba(154,183,255,.12)}
-/* 確認ページにいる間は、押すと戻ることが分かるように塗る */
-.btn.fpl.back{background:var(--fpl);border-color:var(--fpl);color:var(--bg)}
-.btn.fpl.back:hover{background:var(--fpl);filter:brightness(1.08)}
+.btn.fpl:hover{background:var(--fpl);border-color:var(--fpl);filter:brightness(1.08)}
 /* .btn.big が display を持っているので、hidden だけでは消えない */
 .btn[hidden]{display:none !important}
 #fplpage{max-width:1400px;margin:0 auto;padding:4px 10px 90px}
@@ -523,7 +524,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
     <!-- ETP / LDG の ETA と ETOPS 空港。スクロールしなくても常に見える -->
     <div id="etaBox"></div>
     <div id="etopsBox"></div>
-    <button class="btn big" id="btnPdfLoad" title="PDF ファイルを読み込む">📄 PDF読込</button>
+    <button class="btn big load" id="btnPdfLoad" title="PDF ファイルを読み込む">📄 PDF読込</button>
     <button class="btn" id="btnStd" title="プランの STD を T/O に入れる">STD 呼出</button>
     <button class="btn big now-to" id="btnNowTo" title="現在の UTC を T/O に入れる">NOW</button>
     <label class="toggle" title="ATO を入れた地点より後ろの ETO を、その実績時刻を起点に引き直します（既定で ON。外すとプラン通りの ETO に戻ります）">
