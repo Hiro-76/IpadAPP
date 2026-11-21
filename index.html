@@ -25,6 +25,12 @@
   --panel:#151d27;
   --panel2:#1b2531;
   --rule:#27354a;
+  /* 記入欄（WPT ごとに手で書き込む側）の色。固定部分と見分けるため明るさを変える */
+  --well:#223247;        /* 記入欄の地色: 固定部分よりはっきり明るく */
+  --well-rule:#4d6a95;
+  --well-edge:rgba(255,194,71,.55);  /* 左端の琥珀の帯 = ここに書く */
+  --field:#0d1620;       /* 1 マスの入力枠は逆に暗くして、空欄だと分かるように */
+  --well-shadow:inset 0 1px 0 rgba(255,255,255,.06);
   --plan:#8ea6bf;        /* printed plan values */
   --ink:#ffc247;         /* pilot write-in (amber) */
   --ok:#5fd48a;
@@ -42,6 +48,11 @@ html[data-theme="day"]{
   --panel:#ffffff;
   --panel2:#f4f7fa;
   --rule:#c8d2dd;
+  --well:#d7e3f1;
+  --well-rule:#8ba2bc;
+  --well-edge:rgba(160,90,0,.50);
+  --field:#ffffff;
+  --well-shadow:inset 0 1px 2px rgba(20,40,60,.09);
   --plan:#41546a;
   --ink:#a05a00;
   --ok:#1f7a45;
@@ -210,11 +221,17 @@ html[data-theme="day"] .btn.now-to{color:#fff}
 .cdu-grid .to{font-size:12px;color:var(--plan)}
 .cdu-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
 /* どの WPT に入れるかは自分で選ぶ（読み取りの当て推量に任せない） */
-.cdu-pick{display:flex;gap:10px;align-items:center;justify-content:center;margin:10px 0 4px}
+.cdu-pick{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;margin:10px 0 4px}
 .cdu-pick label{font-size:12px;letter-spacing:.1em;color:var(--plan)}
 .cdu-pick select{font:600 17px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;
   background:var(--panel2);color:var(--ink);border:1px solid var(--cdu);border-radius:8px;
   padding:8px 10px;min-height:41px;max-width:60vw}
+/* すでに反映した WPT は、チェックだけでなく色でも分かるようにする */
+.cdu-pick select option{color:var(--ink);background:var(--panel2)}
+.cdu-pick select option.done{color:var(--ok)}
+.cdu-pick select.done{color:var(--ok);border-color:var(--ok)}
+.cdu-state{font-size:12px;letter-spacing:.08em;color:var(--plan);white-space:nowrap}
+.cdu-state.done{color:var(--ok);font-weight:700}
 
 #hoff{
   position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.72);
@@ -297,12 +314,19 @@ html[data-theme="day"] .btn.now-to{color:#fff}
 .cell .k{font-size:8.5px;letter-spacing:.14em;color:var(--plan);opacity:.6}
 .cell .v{font-size:13px;color:var(--plan);white-space:nowrap}
 .cell .v.dim{opacity:.4}
+/* 固定部分（左: WPT とプラン）と記入欄の境目を点線で区切る。横並びのときだけ。 */
+@media (min-width:901px){
+  .plan{border-right:1px dashed var(--well-rule);padding-right:12px}
+}
 
 /* 欄ごとに必要な桁数が違うので、幅も桁数どおりに配分する
    ETO 0557(4) / ATO 0551(4) / ALT 360(3) / RMG 284.1(5) / SAT -45(3) / SPOT WND 040/135(7) */
 .entry{display:grid;grid-template-columns:4fr 4fr 3fr 5fr 3fr 7fr auto;gap:7px;align-items:end;
   container-type:inline-size;
-  background:var(--panel);border-radius:8px;padding:8px;border:1px solid var(--rule);
+  /* 固定部分（プランの印字）と地色・枠を変え、くぼんだ「書き込む欄」に見せる */
+  background:var(--well);border-radius:8px;padding:8px;border:1px solid var(--well-rule);
+  border-left:3px solid var(--well-edge);
+  box-shadow:var(--well-shadow);
   transition:background-color .2s,border-color .2s}
 .entry:has(input[data-f="ato"]:not(:placeholder-shown)){
   background:rgba(72,187,232,.12);border-color:rgba(72,187,232,.4)}
@@ -312,7 +336,7 @@ html[data-theme="day"] .entry:has(input[data-f="ato"]:not(:placeholder-shown)){
 .slot .k{font-size:11px;font-weight:600;letter-spacing:.1em;color:var(--plan);opacity:.95;text-align:center;white-space:nowrap}
 .slot input,.slot .eto{
   width:100%;text-align:center;border-radius:8px;padding:10px 2px;
-  border:1px solid var(--rule);background:var(--panel2);
+  border:1px solid var(--rule);background:var(--field);
   font-size:clamp(16px,4.2vw,21px);font-weight:700;letter-spacing:.02em;color:var(--ink);
   line-height:1.15;min-width:0;
   transition:background-color .15s,border-color .15s;
@@ -431,7 +455,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
 @media print{
   @page{size:A4 landscape;margin:8mm 10mm}
   body{max-width:none;margin:0;padding:0}
-  html[data-theme]{--bg:#fff;--panel:#fff;--panel2:#fff;--rule:#999;--plan:#000;--ink:#000;--text:#000;--ok:#000;--late:#000;--etp:#000}
+  html[data-theme]{--bg:#fff;--panel:#fff;--panel2:#fff;--well:#fff;--well-rule:#999;--field:#fff;--rule:#999;--plan:#000;--ink:#000;--text:#000;--ok:#000;--late:#000;--etp:#000}
   body{background:#fff;color:#000;font-size:8pt}
   header,#loader,.now,.btn,.legend,#toast{display:none!important}
   #printHead{display:block;border-bottom:1.5px solid #000;padding-bottom:4px;margin-bottom:6px}
@@ -451,9 +475,9 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
   .wp .name{font-size:7pt;font-weight:700;line-height:1.1;letter-spacing:.02em;overflow:visible}
   .wp .name .seq{font-size:5.5pt;opacity:.6;margin-right:3px}
   .wp .pos{display:block;font-size:5.5pt;opacity:.75}
-  .plan{gap:0 9px;padding:0 2pt}
+  .plan{gap:0 9px;padding:0 2pt;border-right:0}
   .cell .k{font-size:5pt}.cell .v{font-size:7pt}
-  .entry{gap:3px;padding:3pt;margin:1pt 0 0;
+  .entry{gap:3px;padding:3pt;margin:1pt 0 0;box-shadow:none;
     grid-template-columns:4fr 4fr 3fr 5fr 3fr 7fr;width:100%;box-sizing:border-box;
     border:1px solid #666;border-radius:4px;background:#111}
   .slot .k{font-size:6pt;opacity:1;color:#888 !important;font-weight:700}
@@ -596,6 +620,7 @@ html[data-theme="day"] .eto_input.manual{background:rgba(160,90,0,.08)}
     <div class="cdu-pick">
       <label for="cduWpt">入れる WPT</label>
       <select id="cduWpt"></select>
+      <span class="cdu-state" id="cduWptState"></span>
     </div>
     <div id="cduBody"></div>
     <p id="cduMsg"></p>
@@ -2090,9 +2115,26 @@ function cduFillWpts(sel){
             : (box.value !== '' ? +box.value
             : (STATE.wps.findIndex(w => !w.ato) >= 0 ? STATE.wps.findIndex(w => !w.ato) : 0));
   box.innerHTML = STATE.wps.map((w,i) =>
-    '<option value="' + i + '">' + String(w.seq).padStart(2,'0') + ' ' + esc(w.name) +
-    (w.ato ? '  ✓' + esc(w.ato) : '') + '</option>').join('');
+    '<option value="' + i + '"' + (cduDone(w) ? ' class="done"' : '') + '>' + String(w.seq).padStart(2,'0') + ' ' + esc(w.name) +
+    (cduDone(w) ? '  ✓' + esc(w.ato || '記入済') : '') + '</option>').join('');
   box.value = String(Math.max(0, Math.min(STATE.wps.length-1, cur)));
+  cduWptState();
+}
+/* 一度でも書き込んだ WPT か。CDU 読込で入る欄のどれかが埋まっていれば「反映済み」。 */
+function cduDone(w){ return !!(w && (w.ato || w.alt_in || w.rmg || w.sat || w.spot)); }
+/* 選んでいる WPT が反映済みかどうかを色と文字で見せる。
+   iPad の <select> は option の色を塗らないことがあるので、
+   今選んでいる分は必ず枠の色と右の札でも伝える。 */
+function cduWptState(){
+  const box = $('#cduWpt'), tag = $('#cduWptState');
+  if(!box || !tag) return;
+  const w = STATE.wps[+box.value];
+  const done = cduDone(w);
+  box.classList.toggle('done', done);
+  tag.classList.toggle('done', done);
+  tag.textContent = !w ? ''
+    : done ? ('✓ 反映済み' + (w.ato ? '（ATO ' + w.ato + '）' : '') + ' — 上書きになります')
+    : '未記入';
 }
 function cduWptIdx(){
   const box = $('#cduWpt');
@@ -3370,6 +3412,8 @@ $('#btnSave').onclick = ()=> STATE.wps.length && download(stamp()+'.json',
   JSON.stringify(buildHandoff(), null, 1), 'application/json');
 $('#btnCdu').onclick   = cduOpen;
 $('#cduClose').onclick = cduClose;
+/* 入れ先を選び直したら、反映済みかどうかの表示も付け替える */
+$('#cduWpt').addEventListener('change', cduWptState);
 $('#cduFile').addEventListener('change', e=>{
   const f = e.target.files && e.target.files[0];
   e.target.value = '';                 /* 同じ写真をもう一度選べるように */
