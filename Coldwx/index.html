@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 検索エンジンに載せない（URL を知っている人だけが辿り着ける状態にする） -->
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+<meta name="googlebot" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>離陸適用性能 — COLD WX</title>
+
+<!-- ---- PWA / iPad ホーム画面（オフライン起動）---- -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0c1f33">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="COLD WX">
+<meta name="format-detection" content="telephone=no">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<style>
+:root{
+  --bg:#0e131a;
+  --panel:#151d27;
+  --panel2:#1b2531;
+  --rule:#27354a;
+  /* 入力欄は固定の説明部分とはっきり分ける */
+  --well:#223247;
+  /* 出した答えの背景。入力欄（--well）とは色味を変えて、結果だと一目で分かるようにする */
+  --out-bg:#07202e;
+  --well-rule:#4d6a95;
+  --plan:#8ea6bf;        /* 説明・見出し */
+  --ink:#ffc247;         /* 選択中（琥珀） */
+  --ok:#5fd48a;
+  --late:#ff7b6b;
+  --cold:#7fc9ff;        /* このアプリの色 */
+  --text:#dbe7f3;
+  --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.35);
+}
+html[data-theme="day"]{
+  --bg:#eef1f4;
+  --panel:#ffffff;
+  --panel2:#f4f7fa;
+  --rule:#c8d2dd;
+  --well:#d7e3f1;
+  --out-bg:#dcf0fd;
+  --well-rule:#8ba2bc;
+  --plan:#41546a;
+  --ink:#a05a00;
+  --ok:#1f7a45;
+  --late:#c0392b;
+  --cold:#0b6ea8;
+  --text:#16202b;
+  --shadow:0 1px 0 rgba(0,0,0,.02), 0 6px 18px rgba(20,40,60,.10);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace;
+  font-size:14px;-webkit-text-size-adjust:100%;
+  padding-bottom:env(safe-area-inset-bottom);
+}
+button,select{font-family:inherit;font-size:inherit;color:inherit}
+
+/* ---------- top bar ---------- */
+header{
+  position:sticky;top:0;z-index:30;
+  background:linear-gradient(180deg,var(--panel) 0%,var(--panel) 72%,rgba(0,0,0,0) 100%);
+  padding:calc(10px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 14px calc(14px + env(safe-area-inset-left));
+  border-bottom:1px solid var(--rule);box-shadow:var(--shadow);
+}
+.hdr-row{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline}
+.title{font-size:20px;font-weight:700;letter-spacing:.09em;color:var(--cold)}
+.sub{font-size:12px;letter-spacing:.08em;color:var(--plan)}
+.spacer{flex:1 1 auto}
+.badge{
+  font-size:10px;letter-spacing:.12em;padding:3px 7px;border-radius:999px;
+  border:1px solid var(--rule);color:var(--plan);white-space:nowrap;
+}
+.badge.ready{border-color:var(--ok);color:var(--ok)}
+.badge.offline{border-color:var(--ink);color:var(--ink)}
+.badge.wait{opacity:.6}
+.btn{
+  background:var(--panel2);border:1px solid var(--rule);border-radius:8px;
+  padding:7px 11px;cursor:pointer;letter-spacing:.06em;font-size:12px;color:var(--text);
+}
+.btn:hover{border-color:var(--plan)}
+.btn:active{transform:translateY(1px)}
+.btn.theme{border-color:var(--ink);color:var(--ink);letter-spacing:.08em}
+.btn.theme i{font-style:normal;font-size:20px;line-height:1;vertical-align:-3px;margin-right:5px}
+.btn:focus-visible,select:focus-visible,.seg:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+/* ---------- 共通のカード ---------- */
+main{max-width:1100px;margin:0 auto;padding:14px 10px 90px}
+.card{
+  background:var(--panel);border:1px solid var(--rule);border-radius:12px;
+  margin:10px 0;padding:12px 14px;box-shadow:var(--shadow);
+}
+.card > h2{
+  margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:.18em;
+  color:var(--plan);text-transform:uppercase;
+}
+.card > h2 .jp{text-transform:none;letter-spacing:.1em;opacity:.8;font-weight:400;margin-left:8px}
+
+/* ---------- 選択ボタン ---------- */
+.segs{display:flex;flex-wrap:wrap;gap:8px}
+.seg{
+  background:var(--well);border:1px solid var(--well-rule);border-radius:9px;
+  color:var(--text);cursor:pointer;min-height:46px;padding:8px 16px;
+  font-size:15px;font-weight:700;letter-spacing:.06em;
+  transition:background-color .15s,border-color .15s,color .15s;
+}
+.seg:hover{border-color:var(--ink)}
+.seg[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:#1f1403}
+html[data-theme="day"] .seg[aria-pressed="true"]{color:#fff}
+.seg.wide{flex:1 1 180px}
+.seg.rwycc{flex:1 1 90px;text-align:center}
+
+/* ---------- 滑走路 3 区分 ---------- */
+.thirds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:860px){ .thirds{grid-template-columns:1fr} }
+.third{
+  background:var(--panel2);border:1px solid var(--rule);border-radius:10px;padding:10px;
+}
+.third > h3{
+  margin:0 0 8px;font-size:15px;font-weight:700;letter-spacing:.14em;color:var(--cold);
+  display:flex;align-items:baseline;gap:8px;
+}
+.third > h3 small{font-size:10px;letter-spacing:.1em;color:var(--plan);font-weight:400}
+.third .lbl{font-size:10px;letter-spacing:.14em;color:var(--plan);margin:8px 0 5px}
+.third .segs .seg{flex:1 1 100%;font-size:13px;min-height:40px;padding:6px 8px;letter-spacing:.02em}
+select{
+  width:100%;background:var(--well);color:var(--ink);border:1px solid var(--well-rule);
+  border-radius:9px;padding:10px;min-height:46px;
+  font:700 17px/1.2 ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.04em;
+}
+.third.ice select{opacity:.4}
+.third .note-ice{display:none;font-size:10.5px;color:var(--plan);margin-top:5px;line-height:1.5}
+.third.ice .note-ice{display:block}
+.mirror{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--plan);cursor:pointer;margin-top:10px}
+.mirror input{accent-color:var(--ink);width:17px;height:17px}
+
+/* ---------- 結果 ---------- */
+.result{border-color:var(--cold);border-width:2px}
+.out{ text-align:center }
+/* 数値そのものの背景を入力欄と変えて、答えだと一目で分かるようにする */
+.out .v{
+  background:var(--out-bg);border:2px solid var(--cold);border-radius:10px;
+  padding:16px 14px;
+  font-size:clamp(28px,7vw,52px);font-weight:700;letter-spacing:.04em;line-height:1.15;
+  color:var(--ink);word-break:break-word;
+}
+.out .v.ng{color:var(--late)}
+.out .v.wait{font-size:17px;font-weight:400;color:var(--plan);letter-spacing:.08em}
+.out .src{margin-top:8px;font-size:12px;letter-spacing:.06em;color:var(--plan);line-height:1.6}
+.out .src b{color:var(--text);font-weight:700}
+
+/* ---------- INCH 換算 ---------- */
+.inchrow{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:end}
+@media (max-width:720px){ .inchrow{grid-template-columns:1fr} }
+.field > .lbl{font-size:10px;letter-spacing:.14em;color:var(--plan);margin-bottom:5px}
+.mm{
+  background:var(--out-bg);border:2px solid var(--cold);border-radius:10px;
+  padding:10px 12px;min-height:70px;
+  display:flex;align-items:baseline;justify-content:center;gap:9px;
+}
+.mm b{font-size:40px;font-weight:700;letter-spacing:.04em;color:var(--ink);line-height:1.15}
+.mm i{font-style:normal;font-size:20px;font-weight:700;letter-spacing:.1em;color:var(--text);opacity:.85}
+
+/* ---------- 注記 ---------- */
+.notes{font-size:15px;line-height:1.95;color:var(--text);margin:0;padding-left:1.25em}
+.notes li::marker{color:var(--cold)}
+.src-note{
+  margin-top:12px;font-size:12.5px;line-height:1.8;color:var(--plan);opacity:.9;
+  border-top:1px dashed var(--rule);padding-top:9px;
+}
+
+/* ---------- toast ---------- */
+#toast{
+  position:fixed;left:50%;transform:translateX(-50%) translateY(140%);
+  bottom:calc(14px + env(safe-area-inset-bottom));z-index:60;
+  display:flex;align-items:center;gap:10px;max-width:min(92vw,560px);
+  background:var(--panel2);border:1px solid var(--rule);border-radius:10px;
+  padding:9px 12px;font-size:12px;line-height:1.5;color:var(--text);
+  box-shadow:0 10px 28px rgba(0,0,0,.45);
+  transition:transform .25s ease,opacity .25s ease;opacity:0;pointer-events:none;
+}
+#toast.on{transform:translateX(-50%) translateY(0);opacity:1;pointer-events:auto}
+#toast .btn{padding:5px 9px;font-size:11px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hdr-row">
+    <span class="title">離陸適用性能</span>
+    <span class="sub">COLD WX TYPE Ⅳ 2026.02 REV4</span>
+    <span class="spacer"></span>
+    <span class="badge wait" id="netstate" title="オフライン利用の状態">CACHE …</span>
+    <button class="btn theme" id="btnTheme" title="画面の明るさを切り替える"><i>☀</i>DAY</button>
+    <button class="btn" id="btnReset" title="選択を初期状態に戻す">リセット</button>
+  </div>
+</header>
+
+<main>
+
+  <section class="card">
+    <h2>Aircraft<span class="jp">型式</span></h2>
+    <div class="segs" id="segType"></div>
+  </section>
+
+  <section class="card">
+    <h2>Runway — 3 sections<span class="jp">滑走路 3 区分（雪質と積雪深）</span></h2>
+    <div class="thirds" id="thirds"></div>
+    <label class="mirror"><input type="checkbox" id="mirror"> A と同じ内容を B・C にも入れる</label>
+  </section>
+
+  <section class="card">
+    <h2>RWYCC<span class="jp">向こう側 2 区分のうち最も滑り易い値</span></h2>
+    <div class="segs" id="segRwycc"></div>
+  </section>
+
+  <section class="card result">
+    <h2>Applicable performance<span class="jp">適用性能</span></h2>
+    <div class="out">
+      <div class="v wait" id="outPerf">型式を選んでください</div>
+      <div class="src" id="outSrc"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>INCH → mm<span class="jp">積雪深の換算</span></h2>
+    <div class="inchrow">
+      <div class="field">
+        <div class="lbl">INCH（整数部）</div>
+        <div class="segs" id="segInchWhole"></div>
+      </div>
+      <div class="field">
+        <div class="lbl">INCH（小数部）</div>
+        <select id="selInchFrac"></select>
+      </div>
+      <div class="field">
+        <div class="lbl">換算結果</div>
+        <div class="mm"><b id="outMm">—</b><i>mm</i></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Notes<span class="jp">注記</span></h2>
+    <ul class="notes">
+      <li>ICE or COMPACTED SNOW 選択時の積雪深は適用されない</li>
+      <li>RWYCC 6 は RWYCC 5 として扱う</li>
+      <li>積雪等割合 10％未満の場合は DRY、RWYCC 6</li>
+      <li>積雪深 NR は 0ｍｍ を入力</li>
+      <li>雪質と積雪深は滑走路 3 区分それぞれに入れる（判定は最も厳しい区分で行われる）</li>
+      <li>RWYCC は前方（向こう側）2 区分のうち最も滑り易い RUNWAY CONDITION CODE または BRAKING ACTION REPORT</li>
+    </ul>
+    <p class="src-note">
+      出典: Cold Wx TYPE Ⅳ 2026.02 REV4「離陸適用性能」シート。表と判定条件をそのまま写したものです。
+      正式な手順書が優先します。値が合わないと感じたら元表で確認してください。
+    </p>
+  </section>
+
+</main>
+
+<div id="toast" hidden><span id="toastMsg"></span><button class="btn" id="toastBtn" hidden></button></div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+
+/* =======================================================================
+   元表（Cold Wx TYPE Ⅳ 2026.02 REV4）の写し
+   ======================================================================= */
+
+/* 積雪深の選択肢 → 判定に使う代表値（DATA シート H30:I40） */
+const DEPTHS = [
+  ['0～3ｍｍ', 3], ['4～6ｍｍ', 6], ['7～11ｍｍ', 11], ['12ｍｍ', 12],
+  ['13～15ｍｍ', 15], ['16～25ｍｍ', 25], ['26～35ｍｍ', 35], ['36～50ｍｍ', 50],
+  ['51～70ｍｍ', 70], ['71～152ｍｍ', 152], ['153ｍｍ 以上', 153]
+];
+const DEPTH_MM = Object.fromEntries(DEPTHS);
+
+const DRY = 'DRY SNOW', WET = 'WET SNOW', SLUSH = 'SLUSH', ICE = 'ICE or COMPACTED SNOW';
+const SNOWS = [DRY, WET, SLUSH, ICE];
+const TYPES = ['200＆300', '300ER＆F'];
+
+/* RWYCC 5,4,3,2,1,0 の順。元表 DATA シートの F〜K 列にあたる */
+const RWYCCS = [5, 4, 3, 2, 1, 0];
+
+/* 判定の補助。t は {snow, mm} */
+const anyT = (c, snow, pred) => c.thirds.some(t => t.snow === snow && (!pred || pred(t.mm)));
+const allT = (c, snow)       => c.thirds.every(t => t.snow === snow);
+
+/* DATA シート 4〜25 行。cells は RWYCC 5,4,3,2,1,0 の順。
+   sup は「この行が YES ならこちらは NO になる」行（元表 L 列の IFS 先頭条件）。
+   cond は元表 L 列の判定そのもの。id は元表の行番号。 */
+const ROWS = [
+  { id:4, label:'ICE or COMPACTED SNOW',
+    cells:['15/11mm・M','15/11mm・M','15/11mm・M','15/11mm・P','15/11mm・P','離着陸不可'],
+    sup:[24,25,23,21,19,18,14,13,9,8],
+    cond:c => allT(c, ICE) },
+
+  { id:6, label:'DRY SNOW 0～15',
+    cells:['15/11mm・M','15/11mm・M','15/11mm・M','15/11mm・P','15/11mm・P','離着陸不可'],
+    sup:[24,25,23,21,19,18,14,13,11,9,8],
+    cond:c => c.type === '200＆300' && anyT(c, DRY, mm => mm < 16) },
+
+  { id:7, label:'DRY SNOW 0～15（ER）',
+    cells:['15/11mm・M','15/11mm・M','15/11mm・M','15/11mm・MP','15/11mm・P','離着陸不可'],
+    sup:[24,25,23,21,19,18,14,13,9,8],
+    cond:c => c.type === '300ER＆F' && anyT(c, DRY, mm => mm < 16) },
+
+  { id:8, label:'DRY SNOW 16～35',
+    cells:['35/25mm・MP','35/25mm・MP','35/25mm・MP','35/25mm・MP','35/25mm・P','離着陸不可'],
+    sup:[24,25,23,21,19,18,14,13,9],
+    cond:c => anyT(c, DRY, mm => mm >= 16) },
+
+  { id:9, label:'DRY SNOW 36～70',
+    cells:['70/50mm・MP','70/50mm・MP','70/50mm・MP','70/50mm・MP','70/50mm・P','離着陸不可'],
+    sup:[24,25,23,21,19,14],
+    cond:c => anyT(c, DRY, mm => mm >= 36) },
+
+  { id:11, label:'WET SNOW 0～11',
+    cells:['15/11mm・M','15/11mm・M','15/11mm・M','15/11mm・P','15/11mm・P','離着陸不可'],
+    sup:[24,25,23,21,19,14,13,9,8],
+    cond:c => c.type === '200＆300' && anyT(c, WET, mm => mm < 12) },
+
+  { id:12, label:'WET SNOW 0～11（ER）',
+    cells:['15/11mm・M','15/11mm・M','15/11mm・M','15/11mm・MP','15/11mm・P','離着陸不可'],
+    sup:[19,25,24,23,21,18,17,14,13],
+    cond:c => c.type === '300ER＆F' && anyT(c, WET, mm => mm < 11) },
+
+  { id:13, label:'WET SNOW 12～25',
+    cells:['35/25mm・MP','35/25mm・MP','35/25mm・MP','35/25mm・MP','35/25mm・P','離着陸不可'],
+    sup:[24,25,19,14,9],
+    cond:c => anyT(c, WET, mm => mm >= 12) },
+
+  { id:14, label:'WET SNOW 26～50',
+    cells:['70/50mm・MP','70/50mm・MP','70/50mm・MP','70/50mm・MP','70/50mm・P','離着陸不可'],
+    sup:[25,24,19],
+    cond:c => anyT(c, WET, mm => mm >= 26) },
+
+  { id:16, label:'SLUSH 0～3',
+    cells:['15/11mm・M','15/11mm・M','15/11mm・M','15/11mm・P','15/11mm・P','離着陸不可'],
+    sup:[21,25,24,23,22,19,18,14,13],
+    cond:c => c.type === '200＆300' && anyT(c, SLUSH) },
+
+  { id:17, label:'SLUSH 0～3（ER）',
+    cells:['15/11mm・M','15/11mm・M','15/11mm・M','15/11mm・MP','15/11mm・P','離着陸不可'],
+    sup:[21,24,25,23,22,19,18,14,13],
+    cond:c => c.type === '300ER＆F' && anyT(c, SLUSH) },
+
+  { id:18, label:'SLUSH 4～6',
+    cells:['35/25mm・M','35/25mm・M','35/25mm・M','35/25mm・P','35/25mm・P','離着陸不可'],
+    sup:[21,24,25,23,22,19,14,13,9],
+    cond:c => anyT(c, SLUSH, mm => mm >= 4) },
+
+  { id:19, label:'SLUSH 7～12',
+    cells:['70/50mm・MP','70/50mm・MP','70/50mm・MP','70/50mm・MP','70/50mm・P','離着陸不可'],
+    sup:[21,24,25,23],
+    cond:c => anyT(c, SLUSH, mm => mm >= 7) },
+
+  { id:21, label:'SLUSH ALL 0～3',
+    cells:['3mm・SLUSH M','3mm・SLUSH M','3mm・SLUSH M','3mm・SLUSH P','3mm・SLUSH P','離着陸不可'],
+    sup:[24,23,22],
+    cond:c => allT(c, SLUSH) },
+
+  { id:22, label:'SLUSH ALL 4～6',
+    cells:['6mm・SLUSH','6mm・SLUSH','6mm・SLUSH','6mm・SLUSH','6mm・SLUSH','離着陸不可'],
+    sup:[25,24],
+    cond:c => allT(c, SLUSH) && c.thirds.some(t => t.mm >= 6) },
+
+  { id:23, label:'SLUSH ALL 7～12',
+    cells:['12mm・SLUSH','12mm・SLUSH','12mm・SLUSH','12mm・SLUSH','12mm・SLUSH','離着陸不可'],
+    sup:[25,24],
+    cond:c => allT(c, SLUSH) && c.thirds.some(t => t.mm >= 12) },
+
+  { id:24, label:'限界超え（DRY 153～ / WET 51～ / SLUSH 13～）',
+    cells:['離着陸不可','離着陸不可','離着陸不可','離着陸不可','離着陸不可','離着陸不可'],
+    sup:[],
+    cond:c => anyT(c, DRY, mm => mm > 152) || anyT(c, WET, mm => mm > 50) || anyT(c, SLUSH, mm => mm > 13) },
+
+  { id:25, label:'DRY SNOW 71～152',
+    cells:['離陸不可','離陸不可','離陸不可','離陸不可','離陸不可','離着陸不可'],
+    sup:[24],
+    cond:c => anyT(c, DRY, mm => mm > 70) }
+];
+
+/* INCH → mm（DATA シート B29:F53）。列は 0+ / 1+ / 2+ / 3+ */
+const INCH_WHOLE = ['0+', '1+', '2+', '3+'];
+const INCH = [
+  ['0',           [  0, 25, 51, 76]],
+  ['0.05',        [  1, 27, 52, 77]],
+  ['0.1',         [  3, 28, 53, 79]],
+  ['0.125 (1/8)', [  3, 29, 54, 79]],
+  ['0.15',        [  4, 29, 55, 80]],
+  ['0.2',         [  5, 30, 56, 81]],
+  ['0.25 (1/4)',  [  6, 32, 57, 83]],
+  ['0.3',         [  8, 33, 58, 84]],
+  ['0.35',        [  9, 34, 60, 85]],
+  ['0.375 (3/8)', [ 10, 35, 60, 86]],
+  ['0.4',         [ 10, 36, 61, 86]],
+  ['0.45',        [ 11, 37, 62, 88]],
+  ['0.5 (1/2)',   [ 13, 38, 64, 89]],
+  ['0.55',        [ 14, 39, 65, 90]],
+  ['0.6',         [ 15, 41, 66, 91]],
+  ['0.625 (5/8)', [ 16, 41, 67, 92]],
+  ['0.65',        [ 17, 42, 67, 93]],
+  ['0.7',         [ 18, 43, 69, 94]],
+  ['0.75 (3/4)',  [ 19, 44, 70, 95]],
+  ['0.8',         [ 20, 46, 71, 97]],
+  ['0.85',        [ 22, 47, 72, 98]],
+  ['0.875 (7/8)', [ 22, 48, 73, 98]],
+  ['0.9',         [ 23, 48, 74, 99]],
+  ['0.95',        [ 24, 50, 75,100]]
+];
+
+/* =======================================================================
+   判定
+   ======================================================================= */
+
+/* 元表の L 列は「より厳しい行が YES なら自分は NO」という作りになっている。
+   行どうしの参照を memo 付きで辿り、元表と同じく上の行から最初の YES を採る。 */
+function pickRow(ctx){
+  const byId = {};
+  ROWS.forEach(r => { byId[r.id] = r; });
+  const memo = {};
+  const yes = id => {
+    if(id in memo) return memo[id];
+    const r = byId[id];
+    if(!r) return (memo[id] = false);
+    memo[id] = false;                       /* 万一の循環参照でも止まるように */
+    const blocked = r.sup.some(s => yes(s));
+    return (memo[id] = blocked ? false : !!r.cond(ctx));
+  };
+  for(const r of ROWS){ if(yes(r.id)) return r; }
+  return null;
+}
+
+/* =======================================================================
+   画面の状態
+   ======================================================================= */
+const LS_STATE = 'coldwx.toperf.v1';
+const LS_THEME = 'coldwx.theme.v1';
+const LS_HINT  = 'coldwx.a2hs.hint.v1';
+
+const STATE = {
+  type: null,
+  rwycc: 5,
+  thirds: [
+    {snow: DRY, depth: DEPTHS[0][0]},
+    {snow: DRY, depth: DEPTHS[0][0]},
+    {snow: DRY, depth: DEPTHS[0][0]}
+  ],
+  mirror: false,
+  inchWhole: '0+',
+  inchFrac: INCH[0][0]
+};
+
+function save(){
+  try{ localStorage.setItem(LS_STATE, JSON.stringify(STATE)); }catch(e){}
+}
+function load(){
+  let raw = null;
+  try{ raw = localStorage.getItem(LS_STATE); }catch(e){ return; }
+  if(!raw) return;
+  let d;
+  try{ d = JSON.parse(raw); }catch(e){ return; }
+  if(!d || typeof d !== 'object') return;
+  if(TYPES.includes(d.type)) STATE.type = d.type;
+  if(RWYCCS.includes(d.rwycc)) STATE.rwycc = d.rwycc;
+  if(Array.isArray(d.thirds)){
+    d.thirds.slice(0,3).forEach((t,i) => {
+      if(t && SNOWS.includes(t.snow)) STATE.thirds[i].snow = t.snow;
+      if(t && (t.depth in DEPTH_MM))  STATE.thirds[i].depth = t.depth;
+    });
+  }
+  STATE.mirror = !!d.mirror;
+  if(INCH_WHOLE.includes(d.inchWhole)) STATE.inchWhole = d.inchWhole;
+  if(INCH.some(r => r[0] === d.inchFrac)) STATE.inchFrac = d.inchFrac;
+}
+
+/* =======================================================================
+   画面を組み立てる
+   ======================================================================= */
+const LETTERS = ['A', 'B', 'C'];
+
+function segButton(label, pressed, cls){
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'seg' + (cls ? ' ' + cls : '');
+  b.textContent = label;
+  b.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+  return b;
+}
+
+function buildType(){
+  const box = $('#segType');
+  box.textContent = '';
+  TYPES.forEach(t => {
+    const b = segButton(t, STATE.type === t, 'wide');
+    b.onclick = () => { STATE.type = t; render(); };
+    box.appendChild(b);
+  });
+}
+
+function buildRwycc(){
+  const box = $('#segRwycc');
+  box.textContent = '';
+  RWYCCS.forEach(n => {
+    const b = segButton('RWYCC ' + n, STATE.rwycc === n, 'rwycc');
+    b.onclick = () => { STATE.rwycc = n; render(); };
+    box.appendChild(b);
+  });
+}
+
+function buildThirds(){
+  const box = $('#thirds');
+  box.textContent = '';
+  STATE.thirds.forEach((t, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'third' + (t.snow === ICE ? ' ice' : '');
+
+    const h = document.createElement('h3');
+    h.textContent = LETTERS[i];
+    const small = document.createElement('small');
+    small.textContent = i === 0 ? '手前' : (i === 2 ? '向こう' : '中央');
+    h.appendChild(small);
+    wrap.appendChild(h);
+
+    const l1 = document.createElement('div');
+    l1.className = 'lbl'; l1.textContent = '雪質';
+    wrap.appendChild(l1);
+
+    const segs = document.createElement('div');
+    segs.className = 'segs';
+    SNOWS.forEach(s => {
+      const b = segButton(s, t.snow === s);
+      b.disabled = STATE.mirror && i > 0;
+      b.onclick = () => { setThird(i, {snow: s}); };
+      segs.appendChild(b);
+    });
+    wrap.appendChild(segs);
+
+    const l2 = document.createElement('div');
+    l2.className = 'lbl'; l2.textContent = '積雪深';
+    wrap.appendChild(l2);
+
+    const sel = document.createElement('select');
+    sel.disabled = STATE.mirror && i > 0;
+    DEPTHS.forEach(([label]) => {
+      const o = document.createElement('option');
+      o.value = label; o.textContent = label;
+      if(label === t.depth) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.onchange = () => { setThird(i, {depth: sel.value}); };
+    wrap.appendChild(sel);
+
+    const n = document.createElement('div');
+    n.className = 'note-ice';
+    n.textContent = 'ICE or COMPACTED SNOW では積雪深は判定に使われません';
+    wrap.appendChild(n);
+
+    box.appendChild(wrap);
+  });
+}
+
+function setThird(i, patch){
+  Object.assign(STATE.thirds[i], patch);
+  if(STATE.mirror && i === 0){
+    STATE.thirds[1] = {snow: STATE.thirds[0].snow, depth: STATE.thirds[0].depth};
+    STATE.thirds[2] = {snow: STATE.thirds[0].snow, depth: STATE.thirds[0].depth};
+  }
+  render();
+}
+
+function buildInch(){
+  const box = $('#segInchWhole');
+  box.textContent = '';
+  INCH_WHOLE.forEach(w => {
+    const b = segButton(w, STATE.inchWhole === w);
+    b.style.flex = '1 1 60px';
+    b.onclick = () => { STATE.inchWhole = w; render(); };
+    box.appendChild(b);
+  });
+  const sel = $('#selInchFrac');
+  if(!sel.options.length){
+    INCH.forEach(([label]) => {
+      const o = document.createElement('option');
+      o.value = label; o.textContent = label;
+      sel.appendChild(o);
+    });
+    sel.onchange = () => { STATE.inchFrac = sel.value; render(); };
+  }
+  sel.value = STATE.inchFrac;
+}
+
+/* =======================================================================
+   表示の更新
+   ======================================================================= */
+function render(){
+  buildType();
+  buildRwycc();
+  buildThirds();
+  buildInch();
+  $('#mirror').checked = STATE.mirror;
+
+  /* ---- 適用性能 ---- */
+  const perf = $('#outPerf'), src = $('#outSrc');
+  perf.classList.remove('ng', 'wait');
+  src.textContent = '';
+
+  if(!STATE.type){
+    perf.classList.add('wait');
+    perf.textContent = '型式を選んでください';
+  } else {
+    const ctx = {
+      type: STATE.type,
+      thirds: STATE.thirds.map(t => ({snow: t.snow, mm: DEPTH_MM[t.depth]}))
+    };
+    const row = pickRow(ctx);
+    if(!row){
+      perf.classList.add('wait');
+      perf.textContent = '該当する条件がありません';
+      src.textContent = '元表に当てはまる行がありません。選択内容を確認してください。';
+    } else {
+      const value = row.cells[RWYCCS.indexOf(STATE.rwycc)];
+      perf.textContent = value;
+      if(value.indexOf('不可') >= 0) perf.classList.add('ng');
+      src.innerHTML = '該当: <b>' + esc(row.label) + '</b>（元表 ' + row.id + ' 行）' +
+                      ' ／ RWYCC ' + STATE.rwycc + ' ／ ' + esc(STATE.type);
+    }
+  }
+
+  /* ---- INCH → mm ---- */
+  const frac = INCH.find(r => r[0] === STATE.inchFrac);
+  const col  = INCH_WHOLE.indexOf(STATE.inchWhole);
+  $('#outMm').textContent = (frac && col >= 0) ? frac[1][col] : '—';
+
+  save();
+}
+
+function esc(s){
+  return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+/* =======================================================================
+   テーマ / toast / Service Worker
+   ======================================================================= */
+function applyTheme(day){
+  document.documentElement.setAttribute('data-theme', day ? 'day' : 'night');
+  const b = $('#btnTheme');
+  b.innerHTML = day ? '<i>☾</i>NIGHT' : '<i>☀</i>DAY';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute('content', day ? '#ffffff' : '#0c1f33');
+  try{ localStorage.setItem(LS_THEME, day ? 'day' : 'night'); }catch(e){}
+}
+
+let toastTimer = null;
+function toast(msg, opt){
+  opt = opt || {};
+  const box = $('#toast'), btn = $('#toastBtn');
+  box.hidden = false;
+  $('#toastMsg').textContent = msg;
+  if(opt.label){
+    btn.hidden = false;
+    btn.textContent = opt.label;
+    btn.onclick = () => { hideToast(); if(opt.action) opt.action(); };
+  } else {
+    btn.hidden = true;
+  }
+  requestAnimationFrame(() => box.classList.add('on'));
+  clearTimeout(toastTimer);
+  if(opt.ms !== 0) toastTimer = setTimeout(hideToast, opt.ms || 4000);
+}
+function hideToast(){
+  clearTimeout(toastTimer);
+  $('#toast').classList.remove('on');
+}
+
+const SW_OK = ('serviceWorker' in navigator) && location.protocol !== 'file:';
+function updNetBadge(){
+  const el = $('#netstate');
+  const controlled = SW_OK && !!navigator.serviceWorker.controller;
+  if(!navigator.onLine){
+    el.textContent = 'OFFLINE';
+    el.className = 'badge offline';
+    el.title = controlled ? 'オフラインで動作中（キャッシュから起動）'
+                          : 'オフラインです（キャッシュ未完了の可能性があります）';
+  } else if(controlled){
+    el.textContent = 'OFFLINE OK';
+    el.className = 'badge ready';
+    el.title = 'キャッシュ済み — ホーム画面から Wi-Fi 無しで起動できます';
+  } else if(SW_OK){
+    el.textContent = 'CACHE …';
+    el.className = 'badge wait';
+    el.title = 'オフライン用のキャッシュを準備しています';
+  } else {
+    el.textContent = 'LOCAL';
+    el.className = 'badge';
+    el.title = 'Service Worker が使えません（file:// で開いている、または非対応）';
+  }
+}
+window.addEventListener('online', updNetBadge);
+window.addEventListener('offline', updNetBadge);
+
+function isStandalone(){
+  return navigator.standalone === true ||
+         (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+}
+function a2hsHint(){
+  if(isStandalone()) return;
+  try{ if(localStorage.getItem(LS_HINT)) return; }catch(e){ return; }
+  toast('オフラインで使うには 共有 → 「ホーム画面に追加」', {
+    label:'OK', ms:12000,
+    action:() => { try{ localStorage.setItem(LS_HINT, '1'); }catch(e){} }
+  });
+}
+
+/* =======================================================================
+   起動
+   ======================================================================= */
+load();
+let dayPref = false;
+try{ dayPref = localStorage.getItem(LS_THEME) === 'day'; }catch(e){}
+applyTheme(dayPref);
+
+$('#btnTheme').onclick = () => {
+  applyTheme(document.documentElement.getAttribute('data-theme') !== 'day');
+};
+$('#mirror').onchange = e => {
+  STATE.mirror = e.target.checked;
+  if(STATE.mirror) setThird(0, {});
+  else render();
+};
+$('#btnReset').onclick = () => {
+  STATE.type = null;
+  STATE.rwycc = 5;
+  STATE.thirds = [0,1,2].map(() => ({snow: DRY, depth: DEPTHS[0][0]}));
+  STATE.mirror = false;
+  STATE.inchWhole = '0+';
+  STATE.inchFrac = INCH[0][0];
+  render();
+};
+
+render();
+updNetBadge();
+
+if(SW_OK){
+  const OWN_SW = new URL('sw.js', location.href).href;
+  const prevCtrl = navigator.serviceWorker.controller;
+  const hadOwnController = !!prevCtrl && prevCtrl.scriptURL === OWN_SW;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    updNetBadge();
+    if(hadOwnController && !reloading){ reloading = true; save(); location.reload(); }
+    else if(!hadOwnController) setTimeout(a2hsHint, 1200);
+  });
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js', {scope:'./'}).then(reg => {
+      const offerUpdate = sw => toast('新しいバージョンがあります', {
+        label:'更新', ms:0,
+        action:() => { save(); sw.postMessage({type:'SKIP_WAITING'}); }
+      });
+      if(reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
+      reg.addEventListener('updatefound', () => {
+        const sw = reg.installing;
+        if(!sw) return;
+        sw.addEventListener('statechange', () => {
+          if(sw.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(sw);
+          updNetBadge();
+        });
+      });
+      updNetBadge();
+      if(navigator.serviceWorker.controller) setTimeout(a2hsHint, 1500);
+    }).catch(() => updNetBadge());
+    document.addEventListener('visibilitychange', () => {
+      if(!document.hidden && navigator.onLine){
+        navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => {});
+      }
+    });
+  });
+}
+</script>
+</body>
+</html>
