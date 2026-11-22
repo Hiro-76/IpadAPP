@@ -184,9 +184,31 @@ Bulletin の他の NOTE は、まとめて並べるのではなく**関係する
 | SNRA / RASN | 注 7（Moderate Snow のときのみ）、注 8（OAT 0℃ 超のときのみ） |
 | Rain on Cold Soaked Wing | 注 8（OAT 0℃ 超のときのみ） |
 
-**注 8 は計算にも効く。** SNRA / RASN と Rain on Cold Soaked Wing は、表の上で
-`-3 and above` の帯に値があっても、OAT が 0℃ 以下なら Guideline は設定されていない。
-アプリもこの 2 つだけは OAT ≤ 0℃ で「Guideline なし」を返す（帯の値は使わない）。
+**注 8 は計算にも効く。** 列見出しの `Moderate Snow mixed with Rain⁷⁾⁸⁾` と
+`Rain on Cold Soaked Wing⁸⁾` に付いている注 8 は「OAT が 0℃ を超える場合にのみ適用する。
+0℃ 以下の場合は Holdover Time の Guideline は設定されていない」。
+
+表の `-3 and above` の帯に値があっても、OAT が 0℃ 以下ならこの 2 欄は引けない。
+アプリはその場合 **「適用外（OAT 0℃ 以下）」** と出し、注 8 と、0℃ 超なら引ける値を
+添える。「Guideline なし」（表に値が無い）とは別物なので文言を分けてある。
+
+> Rain on Cold Soaked Wing が氷点下でいつも適用外になるのは表どおり。
+> 冷え切った主翼に「凍らない雨」が当たる条件なので、OAT 0℃ 超でしか成立しない。
+
+### 降雪強度が効く 3 つの欄
+
+降雪強度の判定（視程からの自動反映、手動変更）と、その強度に応じた Holdover Time は
+次の 3 欄で働く。
+
+| 欄 | 強度の効き方 |
+|---|---|
+| SN/SG/GS | 表が Moderate / Light / Very Light の 3 列に分かれているので、その列を引く |
+| SN with FZFG | 1 列だがレンジなので、**短い方が Moderate、長い方が Light**（注 3 で Heavy は除外） |
+| SNRA / RASN | **Moderate のときだけこの欄**。Light / Very Light は注 7 により **-FZRA の欄**を引く |
+
+**レンジの読み方。** `0:20 – 0:40` のように幅がある欄は、短い方が Moderate、長い方が
+Light。アプリは選んだ強度に応じてどちらかを出し、下に元のレンジと根拠を添える。
+Very Light は長い方を当てる（表のレンジは Moderate–Light のため）。
 
 ### Heavy のとき
 
@@ -214,7 +236,7 @@ SNRA / RASN は Moderate Snow のときだけの欄なので、判定が Moderat
 | `manifest.webmanifest` | ホーム画面追加用 |
 | `icons/` | アイコン 6 サイズ |
 
-**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.1.3`）を上げる。上げないと、
+**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.1.4`）を上げる。上げないと、
 ホーム画面から起動した iPad が古いキャッシュのまま開く。上げておけば、起動時に
 「新しいバージョンがあります」が出て `更新` で入れ替わる。
 
@@ -225,7 +247,7 @@ SNRA / RASN は Moderate Snow のときだけの欄なので、判定が Moderat
 
 ## 動作確認
 
-ヘッドレスブラウザで実際に動かし、元表の各行・境界・INCH 換算の 25 ケース、HOLD OVER TIME は 47 ケースが
+ヘッドレスブラウザで実際に動かし、元表の各行・境界・INCH 換算の 25 ケース、HOLD OVER TIME は 59 ケースが
 元表と一致することを確認済み。元表自身が計算している例
 （全区分 ICE・RWYCC 1・ER → `15/11mm・P`、INCH `3+` と `0.25` → `83mm`）も一致する。
 

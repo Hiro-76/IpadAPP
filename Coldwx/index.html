@@ -1145,6 +1145,18 @@ function belowLout(rows, t){
   return !rows.some(r => bandMatch(r[0], t));
 }
 
+/* レンジ表記（0:20-0:40）は、短い方が Moderate、長い方が Light。
+   降雪強度が決まっている欄では、その端を取る。 */
+function pickByIntensity(v, intensity){
+  const note = /\^(\d)$/.test(v) ? v.match(/\^(\d)$/)[0] : '';
+  const m = String(v).replace(/\^\d$/, '').match(/^(\d+:\d+)-(\d+:\d+)$/);
+  if(!m) return {v: v, end: null, lo: null, hi: null};
+  const lo = m[1], hi = m[2];
+  if(lo === hi) return {v: lo + note, end: null, lo: lo, hi: hi};
+  const useLo = (intensity === 'Moderate');
+  return {v: (useLo ? lo : hi) + note, end: (useLo ? 'lo' : 'hi'), lo: lo, hi: hi};
+}
+
 /* ---- 表示 ---- */
 function fmtHot(v){
   if(v == null) return {text:'—', ng:false, note:''};
@@ -1299,7 +1311,7 @@ function hotRender(){
      強度ボタンは出さず、判定結果だけを見せる。 */
   const usesConv = SNOW_FAMILY.indexOf(HOTS.precip) >= 0;
   $('#hotSnowWrap').hidden = !usesConv;
-  $('#hotIntWrap').hidden  = !isSnow;
+  $('#hotIntWrap').hidden  = !usesConv;
 
   /* OAT の帯 */
   const row = (t == null) ? null
@@ -1322,10 +1334,8 @@ function hotRender(){
       extra += '<br>Heavy Snow は Holdover Time の Guideline が無い。' +
                '離陸前 5 分以内に翼上面点検（Operations in Heavy Snow）。';
     }
-    if(HOTS.precip === 'snra' && HOTS.snow !== 'Moderate'){
-      extra += '<br>SNRA / RASN の欄は Moderate Snow と確認できる場合のみ。' +
-               'Very Light / Light Snow と Light Rain もしくは Drizzle の Mixed Condition は ' +
-               '-FZRA の表を使う。';
+    if(HOTS.precip === 'snra' && HOTS.snow !== 'Moderate' && HOTS.snow !== 'Heavy'){
+      extra += '<br>SNRA / RASN は Moderate Snow のときのみ。いまは -FZRA の表を引いています。';
     }
     $('#convOut').innerHTML = '判定: <b>' + esc(CONV_RESULT) + '</b>　（' + esc(HOTS.day) + ' / ' +
       (t > -1 ? 'Above -1℃' : '-1℃ and below') + '）' + extra;
@@ -1348,35 +1358,54 @@ function hotRender(){
     out.classList.add('wait');
     out.textContent = 'この帯に ' + HOTS.mix + ' の設定がありません';
     src.textContent = '混合比を変えてください。';
-  } else if(NOTE8.indexOf(HOTS.precip) >= 0 && t <= 0){
-    /* 注 8) SNRA/RASN と Rain on Cold Soaked Wing は OAT が 0℃ を超える場合のみ */
-    out.classList.add('ng');
-    out.textContent = 'Guideline なし';
-    src.innerHTML = '<b>' + esc(f.n) + (f.tag ? '【' + f.tag + '】' : '') + '</b>　' +
-      esc(PRECIPS.find(p => p.k === HOTS.precip).t) + '<br>' +
-      '注 8) OAT が 0℃ を超える場合にのみ適用する。0℃ 以下の場合は Holdover Time の ' +
-      'Guideline は設定されていない。';
-  } else if(isSnow && HOTS.snow === 'Heavy'){
-    /* Heavy Snow は表に列が無い。Holdover Time ではなく翼上面点検で担保する。 */
+  } else if(usesConv && HOTS.snow === 'Heavy'){
+    /* 注 3) SN FZFG と SN の欄は Heavy を含まない。SNRA も Heavy Snow は Other 扱い。
+       Holdover Time ではなく翼上面点検で担保する。 */
     out.classList.add('ng');
     out.textContent = '翼上面点検（5 min）';
     src.innerHTML = '<b>' + esc(f.n) + (f.tag ? '【' + f.tag + '】' : '') + '</b>　' +
-      esc(row[0]) + '　' + esc(row[1]) + '　' + esc(PRECIPS[2].t) + '（Heavy）<br>' +
+      esc(row[0]) + '　' + esc(row[1]) + '　' +
+      esc(PRECIPS.find(p => p.k === HOTS.precip).t) + '（Heavy）<br>' +
       'Heavy Snow には Holdover Time の Guideline が無い。' +
       '離陸前 5 分以内に翼上面点検を実施する（Operations in Heavy Snow）。';
+  } else if(HOTS.precip === 'snra' && HOTS.snow !== 'Moderate'){
+    /* 注 7) SNRA/RASN は Moderate Snow のときのみ。Very Light / Light は -FZRA の表。 */
+    const r = fmtHot(row[8]);
+    out.textContent = r.text;
+    if(r.ng) out.classList.add('ng');
+    src.innerHTML = '<b>' + esc(f.n) + (f.tag ? '【' + f.tag + '】' : '') + '</b>　' +
+      esc(row[0]) + '　' + esc(row[1]) + '　-FZRA（Light Freezing Rain）の欄<br>' +
+      '注 7) SNRA / RASN は Moderate Snow のときのみ。いまの降雪強度は ' +
+      esc(HOTS.snow) + ' なので -FZRA の Holdover Time Table を使用する。' +
+      (r.note ? '<br>' + esc(r.note) : '');
+  } else if(NOTE8.indexOf(HOTS.precip) >= 0 && t <= 0){
+    /* 注 8) SNRA/RASN と Rain on Cold Soaked Wing は OAT が 0℃ を超える場合のみ */
+    out.classList.add('ng');
+    out.textContent = '適用外（OAT 0℃ 以下）';
+    src.innerHTML = '<b>' + esc(f.n) + (f.tag ? '【' + f.tag + '】' : '') + '</b>　' +
+      esc(PRECIPS.find(p => p.k === HOTS.precip).t) +
+      (HOTS.precip === 'snra' ? '（Moderate）' : '') + '<br>' +
+      '注 8) OAT が 0℃ を超える場合にのみ適用する。0℃ 以下の場合は Holdover Time の ' +
+      'Guideline は設定されていない。<br>' +
+      'この欄は OAT 0℃ 超でのみ引ける（-3 and above / 100/0 の値は ' +
+      esc(fmtHot(f.rows[0][PRECIPS.find(p => p.k === HOTS.precip).i]).text) + '）。';
   } else {
     const si = SNOW_INT.find(s => s.k === HOTS.snow);
     const col = isSnow ? (si ? si.i : 5) : PRECIPS.find(p => p.k === HOTS.precip).i;
-    const r = fmtHot(row[col]);
+    /* 降雪強度が効く欄でレンジなら、Moderate は短い方・Light / Very Light は長い方 */
+    const pick = usesConv ? pickByIntensity(row[col], HOTS.snow) : {v: row[col], end: null};
+    const r = fmtHot(pick.v);
     out.textContent = r.text;
     if(r.ng) out.classList.add('ng');
-    const pname = isSnow ? (PRECIPS[2].t + '（' + HOTS.snow + '）')
-                         : PRECIPS.find(p => p.k === HOTS.precip).t;
+    const pt = PRECIPS.find(p => p.k === HOTS.precip).t;
+    const pname = usesConv ? (pt + '（' + HOTS.snow + '）') : pt;
     let warn = r.note ? esc(r.note) : '';
-    if(HOTS.precip === 'snra' && CONV_RESULT && HOTS.snow !== 'Moderate'){
+    if(pick.end){
       warn += (warn ? '<br>' : '') +
-        'SNRA / RASN は Moderate Snow のときのみ。いまの判定は ' + esc(HOTS.snow) +
-        ' なので -FZRA の表を使う。';
+        '表は ' + esc(pick.lo) + ' – ' + esc(pick.hi) + '。短い方が Moderate、長い方が Light。' +
+        (HOTS.snow === 'Very Light'
+          ? 'Very Light は長い方を適用。'
+          : '');
     }
     src.innerHTML = '<b>' + esc(f.n) + (f.tag ? '【' + f.tag + '】' : '') + '</b>　' +
       esc(row[0]) + '　' + esc(row[1]) + '　' + esc(pname) +
