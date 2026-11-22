@@ -135,7 +135,7 @@ RWYCC 2 なら `15/11mm・MP` が出る。
 | 液種 | 9 種（GENERIC / KILFROST ABC-S PLUS / CLARIANT SAFEWING MP IV LAUNCH・LAUNCH PLUS / ABAX ECOWING AD-49 / DOW UCAR ENDURANCE EG106・FLIGHTGUARD AD-49 / CRYOTECH POLAR GUARD ADVANCE・XTEND） |
 | 混合比 | 100/0 / 75/25 / 50/50 |
 | OAT | 数値入力。入れると該当の OAT 帯を表示し、LOUT 未満なら「範囲外」と出す |
-| 降水現象 | FZFG・IC / SN with FZFG / SN・SG・Snow Pellets / FZDZ / -FZRA / SNRA・RASN / Rain on Cold Soaked Wing |
+| 降水現象 | FZFG・Freezing Mist・IC / SN with FZFG / SN/SG/GS（SNOW PELLET，Blowing・Drifting Snow を伴う場合を含む） / FZDZ / -FZRA / SNRA・RASN / Rain on Cold Soaked Wing |
 | 降雪強度 | Heavy / Moderate / Light / Very Light（SN を選んだときだけ出る） |
 
 ### 出るもの
@@ -158,6 +158,24 @@ RWYCC 2 なら `15/11mm・MP` が出る。
   それらと Ice Crystal (IC) の Mixed Condition、SN FZFG、SN RA・SN DZ。
   そのため視程の欄は SN / SN FZFG / SNRA の 3 つで出る（強度で列が分かれるのは SN だけ
   なので、SN FZFG と SNRA では判定の表示だけ）
+
+### 降水現象ごとの適用条件
+
+降水現象を選ぶと、その欄に付いている Bulletin の NOTE を下に出す。
+
+| 降水現象 | 出る NOTE |
+|---|---|
+| FZFG / Freezing Mist / IC | 注 1（Mist が単独で発生している場合のみ Freezing Mist と判断）、注 2（IC との Mixed は FZFG の表） |
+| SN with FZFG | 注 3（Heavy は含まれない） |
+| SN/SG/GS（SNOW PELLET） | 注 3、注 4（IC との Mixed は SN の表）、注 5（GS は Snow Pellets と確認できる場合のみ） |
+| FZDZ | 注 6（Light/Moderate/Heavy FZDZ を含む。-FZRA と判別がつかない場合は -FZRA の表） |
+| -FZRA | 注 6（判別がつかない場合はこちら）、Moderate / Heavy FZRA は Other で離陸不可 |
+| SNRA / RASN | 注 7（Moderate Snow のときのみ）、注 8（OAT 0℃ 超のときのみ） |
+| Rain on Cold Soaked Wing | 注 8（OAT 0℃ 超のときのみ） |
+
+**注 8 は計算にも効く。** SNRA / RASN と Rain on Cold Soaked Wing は、表の上で
+`-3 and above` の帯に値があっても、OAT が 0℃ 以下なら Guideline は設定されていない。
+アプリもこの 2 つだけは OAT ≤ 0℃ で「Guideline なし」を返す（帯の値は使わない）。
 
 ### Heavy のとき
 
@@ -185,7 +203,7 @@ SNRA / RASN は Moderate Snow のときだけの欄なので、判定が Moderat
 | `manifest.webmanifest` | ホーム画面追加用 |
 | `icons/` | アイコン 6 サイズ |
 
-**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.1.1`）を上げる。上げないと、
+**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.1.2`）を上げる。上げないと、
 ホーム画面から起動した iPad が古いキャッシュのまま開く。上げておけば、起動時に
 「新しいバージョンがあります」が出て `更新` で入れ替わる。
 
@@ -196,7 +214,7 @@ SNRA / RASN は Moderate Snow のときだけの欄なので、判定が Moderat
 
 ## 動作確認
 
-ヘッドレスブラウザで実際に動かし、元表の各行・境界・INCH 換算の 25 ケース、HOLD OVER TIME は 40 ケースが
+ヘッドレスブラウザで実際に動かし、元表の各行・境界・INCH 換算の 25 ケース、HOLD OVER TIME は 47 ケースが
 元表と一致することを確認済み。元表自身が計算している例
 （全区分 ICE・RWYCC 1・ER → `15/11mm・P`、INCH `3+` と `0.25` → `83mm`）も一致する。
 

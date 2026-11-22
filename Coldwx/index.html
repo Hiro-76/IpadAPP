@@ -136,6 +136,11 @@ main{max-width:1100px;margin:0 auto;padding:14px 10px 90px}
 }
 .convout b{font-size:19px;color:var(--cold);letter-spacing:.06em}
 .conv-note{margin:6px 0 0;font-size:11.5px;line-height:1.65;color:var(--plan)}
+/* 選んだ降水現象の適用条件（Bulletin の NOTE） */
+.precip-guide{margin:10px 0 0;padding-left:1.2em;font-size:12.5px;line-height:1.75;color:var(--text)}
+.precip-guide li{margin:3px 0}
+.precip-guide li::marker{color:var(--cold)}
+.precip-guide:empty{display:none}
 /* Heavy は表に Holdover Time が無いので、選んだときも色で分かるようにする */
 .seg.heavy[aria-pressed="true"]{background:var(--late);border-color:var(--late);color:#fff}
 /* 視程からの判定と一致しているボタンに印を付ける */
@@ -346,6 +351,7 @@ select{
   <section class="card">
     <h2>Precipitation<span class="jp">降水現象</span></h2>
     <div class="segs" id="hotPrecip"></div>
+    <ul class="precip-guide" id="hotGuide"></ul>
     <div id="hotSnowWrap" hidden>
       <div id="hotIntWrap">
         <div class="lbl" id="hotIntLbl" style="margin-top:12px">降雪強度</div>
@@ -987,7 +993,7 @@ const HOT_FLUIDS = [
 const PRECIPS = [
   {k:'fzfg',   i:2, t:'FZFG / Freezing Mist / IC'},
   {k:'snfzfg', i:3, t:'SN with FZFG'},
-  {k:'sn',     i:4, t:'SN / SG / Snow Pellets'},
+  {k:'sn',     i:4, t:'SN/SG/GS（SNOW PELLET），Blowing または Drifting Snow を伴う場合を含む'},
   {k:'fzdz',   i:7, t:'FZDZ'},
   {k:'fzra',   i:8, t:'-FZRA'},
   {k:'snra',   i:9, t:'SNRA / RASN'},
@@ -1002,6 +1008,51 @@ let CONV_RESULT = null;
    （SN / SG / Snow Pellets、Blowing・Drifting Snow を伴うもの、IC との Mixed、
      SN FZFG、SN RA・SN DZ）。SN 以外は列が強度で分かれない。 */
 const SNOW_FAMILY = ['sn', 'snfzfg', 'snra'];
+
+/* 降水現象ごとの適用条件（Bulletin の NOTE をそのまま）。
+   選んだ現象のものだけを画面に出す。 */
+const PRECIP_GUIDE = {
+  fzfg: [
+    '注 1) Freezing Mist は METAR で通報されることはないが、0℃ 以下の気温で METAR BR (Mist) が' +
+      '通報されている場合に Freezing Mist と判断することができる。なお Mist は単独で発生して' +
+      'いなければならない。他の降水条件と混ざっている場合は、視程障害現象として扱われる。',
+    '注 2) Ice Crystal (IC) と Freezing Fog (FZFG) もしくは Freezing Mist の Mixed Condition の場合、' +
+      'Freezing Fog (FZFG) の Holdover Time Table を使用すること。'
+  ],
+  snfzfg: [
+    '注 3) 降雪強度が Heavy の場合は含まれない。'
+  ],
+  sn: [
+    '注 3) 降雪強度が Heavy の場合は含まれない。',
+    '注 4) Very Light / Light / Moderate の SN / SG / Snow Pellets と Ice Crystal (IC) の ' +
+      'Mixed Condition の場合、SN / SG / Snow Pellets の Holdover Time Table を使用すること。',
+    '注 5) METAR/ATIS 等において GS が通報されている場合、通報によって Snow Pellets と' +
+      '確認できる場合にのみ適用する。'
+  ],
+  fzdz: [
+    '注 6) Light, Moderate, Heavy Freezing Drizzle を含む。' +
+      'Freezing Drizzle (FZDZ) あるいは Light Freezing Rain (-FZRA) のどちらか判別がつかない場合は、' +
+      'Light Freezing Rain (-FZRA) の Holdover Time Table を使用する。'
+  ],
+  fzra: [
+    '注 6) Freezing Drizzle (FZDZ) あるいは Light Freezing Rain (-FZRA) のどちらか判別が' +
+      'つかない場合は、こちら（-FZRA）の Holdover Time Table を使用する。',
+    'Moderate and Heavy Freezing Rain は Other に含まれ、離陸してはならない。'
+  ],
+  snra: [
+    '注 7) Moderate Snow と確認できる場合にのみ適用する。Very Light / Light Snow と ' +
+      'Light Rain (-RA) もしくは Drizzle の Mixed Condition の場合、' +
+      'Light Freezing Rain (-FZRA) の Holdover Time Table を使用すること。',
+    '注 8) OAT が 0℃ を超える場合にのみ適用する。0℃ 以下の場合は Holdover Time の ' +
+      'Guideline は設定されていない。'
+  ],
+  rcsw: [
+    '注 8) OAT が 0℃ を超える場合にのみ適用する。0℃ 以下の場合は Holdover Time の ' +
+      'Guideline は設定されていない。'
+  ]
+};
+/* 注 8) が付く列 = OAT 0℃ 以下では Guideline なし */
+const NOTE8 = ['snra', 'rcsw'];
 
 /* Snowfall Intensity Conversion Table（視程 → 強度） */
 const CONV_ROWS = [
@@ -1157,10 +1208,22 @@ function hotBuild(){
   pBox.textContent = '';
   PRECIPS.forEach(p => {
     const b = segButton(p.t, HOTS.precip === p.k);
-    b.style.flex = '1 1 230px';
+    /* SN の欄だけ名前が長いので 1 行使う */
+    b.style.flex = (p.k === 'sn') ? '1 1 100%' : '1 1 230px';
     b.style.fontSize = '13px';
+    b.style.whiteSpace = 'normal';
+    b.style.lineHeight = '1.45';
     b.onclick = () => { HOTS.precip = p.k; hotRender(); };
     pBox.appendChild(b);
+  });
+
+  /* 選んだ現象の適用条件を出す */
+  const gBox = $('#hotGuide');
+  gBox.textContent = '';
+  (PRECIP_GUIDE[HOTS.precip] || []).forEach(txt => {
+    const li = document.createElement('li');
+    li.textContent = txt;
+    gBox.appendChild(li);
   });
 
   /* 視程からの判定は自動で入る。手で選び直すこともできる（上書きは
@@ -1297,12 +1360,20 @@ function hotRender(){
     out.classList.add('wait');
     out.textContent = 'この帯に ' + HOTS.mix + ' の設定がありません';
     src.textContent = '混合比を変えてください。';
+  } else if(NOTE8.indexOf(HOTS.precip) >= 0 && t <= 0){
+    /* 注 8) SNRA/RASN と Rain on Cold Soaked Wing は OAT が 0℃ を超える場合のみ */
+    out.classList.add('ng');
+    out.textContent = 'Guideline なし';
+    src.innerHTML = '<b>' + esc(f.n) + (f.tag ? '【' + f.tag + '】' : '') + '</b>　' +
+      esc(PRECIPS.find(p => p.k === HOTS.precip).t) + '<br>' +
+      '注 8) OAT が 0℃ を超える場合にのみ適用する。0℃ 以下の場合は Holdover Time の ' +
+      'Guideline は設定されていない。';
   } else if(isSnow && HOTS.snow === 'Heavy'){
     /* Heavy Snow は表に列が無い。Holdover Time ではなく翼上面点検で担保する。 */
     out.classList.add('ng');
     out.textContent = '翼上面点検（5 min）';
     src.innerHTML = '<b>' + esc(f.n) + (f.tag ? '【' + f.tag + '】' : '') + '</b>　' +
-      esc(row[0]) + '　' + esc(row[1]) + '　SN / SG / Snow Pellets（Heavy）<br>' +
+      esc(row[0]) + '　' + esc(row[1]) + '　' + esc(PRECIPS[2].t) + '（Heavy）<br>' +
       'Heavy Snow には Holdover Time の Guideline が無い。' +
       '離陸前 5 分以内に翼上面点検を実施する（Operations in Heavy Snow）。';
   } else {
@@ -1311,7 +1382,7 @@ function hotRender(){
     const r = fmtHot(row[col]);
     out.textContent = r.text;
     if(r.ng) out.classList.add('ng');
-    const pname = isSnow ? ('SN / SG / Snow Pellets（' + HOTS.snow + '）')
+    const pname = isSnow ? (PRECIPS[2].t + '（' + HOTS.snow + '）')
                          : PRECIPS.find(p => p.k === HOTS.precip).t;
     let warn = r.note ? esc(r.note) : '';
     if(HOTS.precip === 'snra' && CONV_RESULT && HOTS.snow !== 'Moderate'){
