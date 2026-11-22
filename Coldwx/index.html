@@ -99,6 +99,44 @@ header{
 
 /* ---------- 共通のカード ---------- */
 main{max-width:1100px;margin:0 auto;padding:14px 10px 90px}
+
+/* ---------- ページ切替タブ ---------- */
+.tabs{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tab{
+  background:var(--panel2);border:1px solid var(--rule);border-bottom-width:3px;
+  border-radius:9px 9px 0 0;color:var(--plan);cursor:pointer;
+  padding:9px 18px;font-size:14px;font-weight:700;letter-spacing:.1em;min-height:42px;
+  transition:color .15s,border-color .15s,background-color .15s;
+}
+.tab:hover{color:var(--text)}
+.tab[aria-pressed="true"]{
+  background:var(--panel);color:var(--cold);border-color:var(--rule);
+  border-bottom-color:var(--cold);
+}
+#pg-hot[hidden],#pg-toperf[hidden]{display:none}
+
+/* ---------- HOT ページ ---------- */
+.oatrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.oatrow input{
+  width:7em;background:var(--well);border:1px solid var(--well-rule);border-radius:9px;
+  padding:10px;min-height:48px;color:var(--ink);
+  font:700 26px/1.2 ui-monospace,"SF Mono",Menlo,Consolas,monospace;text-align:center;
+}
+.oatband{
+  flex:1 1 200px;background:var(--panel2);border:1px solid var(--rule);border-radius:9px;
+  padding:10px 14px;font-size:15px;font-weight:700;letter-spacing:.06em;color:var(--text);
+}
+.lbl{font-size:10px;letter-spacing:.14em;color:var(--plan)}
+.conv{margin-top:14px;border-top:1px dashed var(--rule);padding-top:12px}
+.convrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.convrow select{flex:1 1 300px;width:auto}
+.convout{
+  margin-top:10px;background:var(--panel2);border:1px solid var(--rule);border-radius:9px;
+  padding:9px 12px;font-size:13.5px;line-height:1.6;color:var(--plan);
+}
+.convout b{font-size:19px;color:var(--cold);letter-spacing:.06em}
+#hotOut.ng,#frostOut.ng,#plOut.ng{color:var(--late)}
+#frostOut,#plOut{font-size:clamp(24px,5vw,40px)}
 .card{
   background:var(--panel);border:1px solid var(--rule);border-radius:12px;
   margin:10px 0;padding:12px 14px;box-shadow:var(--shadow);
@@ -206,16 +244,22 @@ select{
 
 <header>
   <div class="hdr-row">
-    <span class="title">離陸適用性能</span>
-    <span class="sub">COLD WX TYPE Ⅳ 2026.02 REV4</span>
+    <span class="title" id="pgTitle">離陸適用性能</span>
+    <span class="sub" id="pgSub">COLD WX TYPE Ⅳ 2026.02 REV4</span>
     <span class="spacer"></span>
     <span class="badge wait" id="netstate" title="オフライン利用の状態">CACHE …</span>
     <button class="btn theme" id="btnTheme" title="画面の明るさを切り替える"><i>☀</i>DAY</button>
     <button class="btn" id="btnReset" title="選択を初期状態に戻す">リセット</button>
   </div>
+  <div class="tabs" id="tabs">
+    <button class="tab" data-page="toperf" aria-pressed="true">離陸適用性能</button>
+    <button class="tab" data-page="hot" aria-pressed="false">HOLD OVER TIME</button>
+  </div>
 </header>
 
 <main>
+
+<div id="pg-toperf">
 
   <section class="card">
     <h2>Aircraft<span class="jp">型式</span></h2>
@@ -274,6 +318,80 @@ select{
       正式な手順書が優先します。値が合わないと感じたら元表で確認してください。
     </p>
   </section>
+
+</div><!-- /pg-toperf -->
+
+<div id="pg-hot" hidden>
+
+  <section class="card">
+    <h2>Fluid<span class="jp">液種と混合比</span></h2>
+    <select id="hotFluid"></select>
+    <div class="lbl" style="margin-top:10px">混合比（FLUID/WATER）</div>
+    <div class="segs" id="hotMix"></div>
+  </section>
+
+  <section class="card">
+    <h2>OAT<span class="jp">外気温（℃）</span></h2>
+    <div class="oatrow">
+      <input id="hotOat" type="number" inputmode="decimal" step="0.5" placeholder="-5">
+      <div class="oatband" id="hotBand">—</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Precipitation<span class="jp">降水現象</span></h2>
+    <div class="segs" id="hotPrecip"></div>
+    <div id="hotSnowWrap" hidden>
+      <div class="lbl" style="margin-top:12px">降雪強度</div>
+      <div class="segs" id="hotSnowInt"></div>
+      <div class="conv">
+        <div class="lbl">視程から判定する（Snowfall Intensity Conversion Table）</div>
+        <div class="convrow">
+          <select id="convVis"></select>
+          <div class="segs" id="convDayNight"></div>
+        </div>
+        <div class="convout" id="convOut">視程を選ぶと強度が出ます</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card result">
+    <h2>Holdover Time<span class="jp">適用 HOT</span></h2>
+    <div class="out">
+      <div class="v wait" id="hotOut">液種・OAT・降水現象を選んでください</div>
+      <div class="src" id="hotSrc"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Active Frost<span class="jp">Type IV / Type II（ALUMINUM）</span></h2>
+    <div class="out">
+      <div class="v" id="frostOut">—</div>
+      <div class="src" id="frostSrc">OAT と混合比から引きます（Type I は 0:45 固定）</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Ice Pellet / Small Hail<span class="jp">Allowance Times</span></h2>
+    <select id="plCond"></select>
+    <div class="out" style="margin-top:10px">
+      <div class="v" id="plOut">—</div>
+      <div class="src" id="plSrc"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Notes<span class="jp">注記</span></h2>
+    <ul class="notes" id="hotNotes"></ul>
+    <p class="src-note">
+      出典: B777-26-09 AIRPLANE OPERATIONS MANUAL Bulletin（Effect. NOV 06, 2026）の
+      TYPE IV Holdover Time 表、Snowfall Intensity Conversion Table、
+      Ice Pellet and Small Hail Allowance Times Table、Active Frost Holdover Times。
+      表の値をそのまま写したものです。正式な手順書が優先します。
+    </p>
+  </section>
+
+</div><!-- /pg-hot -->
 
 </main>
 
@@ -737,9 +855,464 @@ function a2hsHint(){
 }
 
 /* =======================================================================
+   HOLD OVER TIME — B777-26-09 AOM Bulletin (Effect. NOV 06, 2026) の写し
+   ======================================================================= */
+
+/* 列の順番: fzfg, snfzfg, snM, snL, snVL, fzdz, fzra, snra, rcsw
+   値: "h:mm" / "h:mm-h:mm" / "*"(Guideline なし) / "N/A"(設定なし)
+   末尾 ^9 = 注 9) OAT -10℃ 未満には Guideline が無い */
+const HOT_FLUIDS = [
+  {n:'GENERIC', tag:'', rows:[
+    ['-3 and above',   '100/0','1:15-2:15','0:20-0:40','0:25','0:55','1:50','0:35-1:10','0:15','0:06','0:08-1:05'],
+    ['-3 and above',   '75/25','1:25-2:40','0:30-0:55','0:40','1:15','2:05','1:00-1:20','0:30','0:07','0:09-1:20'],
+    ['-3 and above',   '50/50','0:30-0:55','0:07-0:20','0:10','0:25','1:00','0:15-0:40','0:09','*','*'],
+    ['below -3 to -8', '100/0','0:15-0:35','0:20-0:35','0:25','0:45','1:35','0:25-1:00','0:20','*','*'],
+    ['below -3 to -8', '75/25','0:40-1:20','0:25-0:50','0:30','1:05','1:50','0:20-1:05','0:15','*','*'],
+    ['below -8 to -14','100/0','0:15-0:35','0:15-0:30','0:20','0:45','1:25','0:25-1:00^9','0:15^9','*','*'],
+    ['below -8 to -14','75/25','0:40-1:20','0:20-0:45','0:25','0:55','1:45','0:20-1:05^9','0:15^9','*','*'],
+    ['below -14 to -18','100/0','0:15-0:25','0:01-0:06','0:02','0:09','0:30','*','*','*','*'],
+    ['below -18 to -25','100/0','0:15-0:25','0:00-0:02','0:01','0:03','0:10','*','*','*','*'],
+    ['below -25',      '100/0','0:15-0:25','0:00-0:01','0:00','0:02','0:07','*','*','*','*']]},
+
+  {n:'KILFROST ABC-S PLUS', tag:'PG', rows:[
+    ['-3 and above',   '100/0','2:10-4:00','0:55-1:35','1:15','2:05','3:00','1:50-2:00','1:05','0:15','0:25-2:00'],
+    ['-3 and above',   '75/25','1:25-2:40','0:30-0:55','0:45','1:15','2:05','1:00-1:20','0:30','0:08','0:10-1:20'],
+    ['-3 and above',   '50/50','0:30-0:55','0:15-0:25','0:15','0:30','1:00','0:15-0:40','0:15','*','*'],
+    ['below -3 to -8', '100/0','0:55-3:30','0:50-1:25','1:05','1:50','3:00','0:25-1:35','0:20','*','*'],
+    ['below -3 to -8', '75/25','0:45-1:50','0:30-0:50','0:40','1:05','1:50','0:20-1:10','0:15','*','*'],
+    ['below -8 to -14','100/0','0:55-3:30','0:45-1:15','1:00','1:45','2:55','0:25-1:35^9','0:20^9','*','*'],
+    ['below -8 to -14','75/25','0:45-1:50','0:25-0:45','0:35','1:00','1:45','0:20-1:10^9','0:15^9','*','*'],
+    ['below -14 to -18','100/0','0:40-1:00','0:01-0:06','0:02','0:09','0:30','*','*','*','*'],
+    ['below -18 to -25','100/0','0:40-1:00','0:00-0:02','0:01','0:03','0:10','*','*','*','*'],
+    ['below -25 to -28','100/0','0:40-1:00','0:00-0:01','0:00','0:02','0:07','*','*','*','*']]},
+
+  {n:'CLARIANT SAFEWING MP IV LAUNCH', tag:'PG', rows:[
+    ['-3 and above',   '100/0','4:00-4:00','0:50-1:20','1:05','1:45','2:50','1:30-2:00','1:00','0:10','0:15-1:40'],
+    ['-3 and above',   '75/25','3:40-4:00','0:45-1:20','1:00','1:45','3:00','1:40-2:00','0:45','0:08','0:10-1:45'],
+    ['-3 and above',   '50/50','1:25-2:45','0:20-0:35','0:25','0:45','1:25','0:30-0:50','0:20','*','*'],
+    ['below -3 to -8', '100/0','1:00-1:55','0:40-1:05','0:55','1:30','2:25','0:35-1:40','0:25','*','*'],
+    ['below -3 to -8', '75/25','0:40-1:20','0:40-1:10','0:50','1:30','2:40','0:25-1:10','0:25','*','*'],
+    ['below -8 to -14','100/0','1:00-1:55','0:35-1:00','0:50','1:20','2:10','0:35-1:40^9','0:25^9','*','*'],
+    ['below -8 to -14','75/25','0:40-1:20','0:35-1:00','0:45','1:25','2:25','0:25-1:10^9','0:25^9','*','*'],
+    ['below -14 to -18','100/0','0:30-0:50','0:05-0:15','0:06','0:20','1:15','*','*','*','*'],
+    ['below -18 to -25','100/0','0:30-0:50','0:02-0:06','0:02','0:09','0:30','*','*','*','*'],
+    ['below -25 to -28.5','100/0','0:30-0:50','0:01-0:04','0:01','0:06','0:20','*','*','*','*']]},
+
+  {n:'ABAX ECOWING AD-49', tag:'PG', rows:[
+    ['-3 and above',   '100/0','3:20-4:00','0:45-1:25','1:00','1:55','3:00','1:25-2:00','1:00','0:08','0:10-1:55'],
+    ['-3 and above',   '75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','N/A','N/A'],
+    ['-3 and above',   '50/50','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -3 to -8', '100/0','0:20-1:35','0:35-1:05','0:45','1:30','2:55','0:25-1:25','0:20','*','*'],
+    ['below -3 to -8', '75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -8 to -14','100/0','0:20-1:35','0:30-0:55','0:40','1:15','2:25','0:25-1:25^9','0:20^9','*','*'],
+    ['below -8 to -14','75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -14 to -18','100/0','0:25-0:40','0:01-0:06','0:02','0:09','0:30','*','*','*','*'],
+    ['below -18 to -25','100/0','0:25-0:40','0:00-0:02','0:01','0:03','0:10','*','*','*','*'],
+    ['below -25 to -26','100/0','0:25-0:40','0:00-0:01','0:00','0:02','0:07','*','*','*','*']]},
+
+  {n:'DOW INC. UCAR ENDURANCE EG106', tag:'EG', rows:[
+    ['-3 and above',   '100/0','2:05-3:10','0:30-1:00','0:40','1:20','2:45','1:10-2:00','0:50','0:15','0:20-2:00'],
+    ['-3 and above',   '75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','N/A','N/A'],
+    ['-3 and above',   '50/50','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -3 to -8', '100/0','1:50-3:20','0:25-0:50','0:35','1:10','2:25','0:55-1:50','0:45','*','*'],
+    ['below -3 to -8', '75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -8 to -14','100/0','1:50-3:20','0:25-0:45','0:30','1:05','2:10','0:55-1:50^9','0:45^9','*','*'],
+    ['below -8 to -14','75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -14 to -18','100/0','0:30-1:05','0:15-0:35','0:25','0:50','1:45','*','*','*','*'],
+    ['below -18 to -25','100/0','0:30-1:05','0:15-0:30','0:20','0:40','1:30','*','*','*','*'],
+    ['below -25 to -29','100/0','0:30-1:05','0:15-0:30','0:20','0:40','1:20','*','*','*','*']]},
+
+  {n:'CRYOTECH POLAR GUARD ADVANCE', tag:'PG', rows:[
+    ['-3 and above',   '100/0','2:50-4:00','0:50-1:25','1:05','1:55','3:00','1:35-2:00','1:15','0:10','0:15-2:00'],
+    ['-3 and above',   '75/25','2:30-4:00','0:30-1:05','0:40','1:25','3:00','1:40-2:00','0:40','0:07','0:09-1:40'],
+    ['-3 and above',   '50/50','0:50-1:25','0:07-0:20','0:10','0:25','1:10','0:20-0:45','0:09','*','*'],
+    ['below -3 to -8', '100/0','0:55-2:30','0:35-1:05','0:50','1:25','2:25','0:35-1:35','0:35','*','*'],
+    ['below -3 to -8', '75/25','0:40-1:30','0:25-0:50','0:30','1:05','2:20','0:25-1:05','0:35','*','*'],
+    ['below -8 to -14','100/0','0:55-2:30','0:30-0:50','0:40','1:10','2:00','0:35-1:35^9','0:35^9','*','*'],
+    ['below -8 to -14','75/25','0:40-1:30','0:20-0:45','0:25','0:55','2:00','0:25-1:05^9','0:35^9','*','*'],
+    ['below -14 to -18','100/0','0:25-0:50','0:08-0:25','0:10','0:35','1:35','*','*','*','*'],
+    ['below -18 to -25','100/0','0:25-0:50','0:03-0:10','0:04','0:15','0:40','*','*','*','*'],
+    ['below -25 to -30.5','100/0','0:25-0:50','0:02-0:05','0:02','0:07','0:25','*','*','*','*']]},
+
+  {n:'DOW INC. UCAR FLIGHTGUARD AD-49', tag:'PG', rows:[
+    ['-3 and above',   '100/0','3:20-4:00','0:45-1:25','1:00','1:55','3:00','1:25-2:00','1:00','0:08','0:10-1:55'],
+    ['-3 and above',   '75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','N/A','N/A'],
+    ['-3 and above',   '50/50','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -3 to -8', '100/0','0:20-1:35','0:35-1:05','0:45','1:30','2:55','0:25-1:25','0:20','*','*'],
+    ['below -3 to -8', '75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -8 to -14','100/0','0:20-1:35','0:30-0:55','0:40','1:15','2:25','0:25-1:25^9','0:20^9','*','*'],
+    ['below -8 to -14','75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -14 to -18','100/0','0:25-0:40','0:01-0:06','0:02','0:09','0:30','*','*','*','*'],
+    ['below -18 to -25','100/0','0:25-0:40','0:00-0:02','0:01','0:03','0:10','*','*','*','*'],
+    ['below -25 to -26','100/0','0:25-0:40','0:00-0:01','0:00','0:02','0:07','*','*','*','*']]},
+
+  {n:'CLARIANT SAFEWING MP IV LAUNCH PLUS', tag:'PG', rows:[
+    ['-3 and above',   '100/0','3:55-4:00','0:40-1:35','0:55','2:05','3:00','2:00-2:00','1:00','0:15','0:20-2:00'],
+    ['-3 and above',   '75/25','3:55-4:00','0:35-1:25','0:50','1:55','3:00','2:00-2:00','1:20','0:15','0:20-1:50'],
+    ['-3 and above',   '50/50','1:15-1:50','0:15-0:35','0:20','0:45','1:35','0:25-1:00','0:15','*','*'],
+    ['below -3 to -8', '100/0','0:55-2:15','0:35-1:15','0:45','1:40','3:00','0:25-1:35','0:25','*','*'],
+    ['below -3 to -8', '75/25','0:40-2:00','0:30-1:05','0:35','1:30','3:00','0:20-1:05','0:20','*','*'],
+    ['below -8 to -14','100/0','0:55-2:15','0:30-1:05','0:40','1:25','3:00','0:25-1:35^9','0:25^9','*','*'],
+    ['below -8 to -14','75/25','0:40-2:00','0:25-0:55','0:30','1:15','2:55','0:20-1:05^9','0:20^9','*','*'],
+    ['below -14 to -18','100/0','0:25-0:50','0:05-0:20','0:07','0:25','1:15','*','*','*','*'],
+    ['below -18 to -25','100/0','0:25-0:50','0:02-0:07','0:03','0:09','0:30','*','*','*','*'],
+    ['below -25 to -29','100/0','0:25-0:50','0:01-0:04','0:02','0:06','0:20','*','*','*','*']]},
+
+  {n:'CRYOTECH POLAR GUARD XTEND', tag:'PG', rows:[
+    ['-3 and above',   '100/0','2:30-4:00','0:50-1:30','1:05','2:00','3:00','2:00-2:00','1:00','0:15','0:20-1:45'],
+    ['-3 and above',   '75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','N/A','N/A'],
+    ['-3 and above',   '50/50','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -3 to -8', '100/0','1:00-1:50','0:40-1:10','0:50','1:35','2:50','0:35-1:40','0:50','*','*'],
+    ['below -3 to -8', '75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -8 to -14','100/0','1:00-1:50','0:35-1:00','0:45','1:20','2:25','0:35-1:40^9','0:50^9','*','*'],
+    ['below -8 to -14','75/25','N/A','N/A','N/A','N/A','N/A','N/A','N/A','*','*'],
+    ['below -14 to -18','100/0','0:25-0:40','0:15-0:30','0:20','0:40','1:20','*','*','*','*'],
+    ['below -18 to -25','100/0','0:25-0:40','0:05-0:10','0:06','0:15','0:30','*','*','*','*'],
+    ['below -25 to -29','100/0','0:25-0:40','0:03-0:06','0:04','0:09','0:20','*','*','*','*']]}
+];
+
+/* 降水現象。key は HOT_FLUIDS の列名 */
+const PRECIPS = [
+  {k:'fzfg',   i:2, t:'FZFG / Freezing Mist / IC'},
+  {k:'snfzfg', i:3, t:'SN with FZFG'},
+  {k:'sn',     i:4, t:'SN / SG / Snow Pellets'},
+  {k:'fzdz',   i:7, t:'FZDZ'},
+  {k:'fzra',   i:8, t:'-FZRA'},
+  {k:'snra',   i:9, t:'SNRA / RASN'},
+  {k:'rcsw',   i:10,t:'Rain on Cold Soaked Wing'}
+];
+const SNOW_INT = [{k:'Moderate', i:4}, {k:'Light', i:5}, {k:'Very Light', i:6}];
+
+/* Snowfall Intensity Conversion Table（視程 → 強度） */
+const CONV_ROWS = [
+  ['≤400 m (≤1/4 SM)',          'Heavy',      'Heavy',      'Heavy',      'Heavy'],
+  ['800 m (1/2 SM)',            'Moderate',   'Heavy',      'Heavy',      'Heavy'],
+  ['1200 m (3/4 SM)',           'Moderate',   'Moderate',   'Moderate',   'Heavy'],
+  ['1600 m (1 SM)',             'Light',      'Light',      'Moderate',   'Moderate'],
+  ['2000 m (1 1/4 SM)',         'Light',      'Light',      'Moderate',   'Moderate'],
+  ['2400 m (1 1/2 SM)',         'Light',      'Light',      'Moderate',   'Moderate'],
+  ['2800 m (1 3/4 SM)',         'Very Light', 'Light',      'Light',      'Light'],
+  ['3200 m (2 SM)',             'Very Light', 'Very Light', 'Light',      'Light'],
+  ['4000 m (2 1/2 SM)',         'Very Light', 'Very Light', 'Light',      'Light'],
+  ['4800 m (3 SM)',             'Very Light', 'Very Light', 'Very Light', 'Light'],
+  ['≥5600 m (≥3 1/2 SM)',       'Very Light', 'Very Light', 'Very Light', 'Very Light']
+];
+
+/* Active Frost（ALUMINUM / A380・A320/A321・B777・B767） */
+const FROST_ROWS = [
+  ['-1 and above',    '100/0', '8:00', '12:00'],
+  ['-1 and above',    '75/25', '5:00', '5:00'],
+  ['-1 and above',    '50/50', '2:00', '3:00'],
+  ['below -1 to -3',  '100/0', '8:00', '12:00'],
+  ['below -1 to -3',  '75/25', '5:00', '5:00'],
+  ['below -1 to -3',  '50/50', '1:30', '3:00'],
+  ['below -3 to -10', '100/0', '8:00', '10:00'],
+  ['below -3 to -10', '75/25', '4:00', '5:00'],
+  ['below -10 to -14','100/0', '6:00', '6:00'],
+  ['below -10 to -14','75/25', '1:00', '1:00'],
+  ['below -14 to -21','100/0', '3:00', '6:00'],
+  ['below -21 to -25','100/0', '2:00', '4:00^3'],
+  ['below -25',       '100/0', '-',    '-']
+];
+
+/* Ice Pellet and Small Hail Allowance Times（分）。列は OAT 帯 */
+const PL_OAT = ['Above 0℃', '0 to -5℃', 'Below -5 to -10℃', 'Below -10 to -16℃', 'Below -16 to -22℃'];
+const PL_TABLE = {
+  EG: [
+    ['-PL（Light Ice Pellets）',                       ['70','70','70','50','30']],
+    ['-PLSN, -SNPL（+ Light Snow）',                   ['50','50','30','25','-']],
+    ['-PLFZDZ, -FZDZPL（+ Light FZDZ）',               ['-','40','30','-','-']],
+    ['-PLDZ, -DZPL（+ Light Drizzle）',                ['40','-','-','-','-']],
+    ['-PLFZRA, -FZRAPL（+ Light FZRA）',               ['-','40','30','-','-']],
+    ['-PLRA, -RAPL（+ Light Rain）',                   ['40','-','-','-','-']],
+    ['-PLFZRASN 等（+ Light FZRA and Light Snow）',    ['-','20','-','-','-']],
+    ['-PLRASN 等（+ Light Rain and Light Snow）',      ['20','-','-','-','-']],
+    ['PL（Moderate Ice Pellets）',                     ['35','35','35','15','10']],
+    ['PLSN, SNPL（+ Moderate Snow）',                  ['25','25','15','10','-']],
+    ['PLFZDZ, FZDZPL（+ L/M FZDZ）',                   ['-','20','10','-','-']],
+    ['PLDZ, DZPL（+ L/M Drizzle）',                    ['20','-','-','-','-']],
+    ['PLRA, RAPL（+ Moderate Rain）',                  ['15','-','-','-','-']]
+  ],
+  PG: [
+    ['-PL（Light Ice Pellets）',                       ['50','50','30','30^2','20^2']],
+    ['-PLSN, -SNPL（+ Light Snow）',                   ['40','40','15','15^2','-']],
+    ['-PLFZDZ, -FZDZPL（+ Light FZDZ）',               ['-','25','10','-','-']],
+    ['-PLDZ, -DZPL（+ Light Drizzle）',                ['25','-','-','-','-']],
+    ['-PLFZRA, -FZRAPL（+ Light FZRA）',               ['-','25','10','-','-']],
+    ['-PLRA, -RAPL（+ Light Rain）',                   ['25','-','-','-','-']],
+    ['-PLFZRASN 等（+ Light FZRA and Light Snow）',    ['-','20','-','-','-']],
+    ['-PLRASN 等（+ Light Rain and Light Snow）',      ['20','-','-','-','-']],
+    ['PL（Moderate Ice Pellets）',                     ['15','15','10','10^2','-']],
+    ['PLSN, SNPL（+ Moderate Snow）',                  ['15','15','5','5^2','-']],
+    ['PLFZDZ, FZDZPL（+ L/M FZDZ）',                   ['-','10','7','-','-']],
+    ['PLDZ, DZPL（+ L/M Drizzle）',                    ['10','-','-','-','-']],
+    ['PLRA, RAPL（+ Moderate Rain）',                  ['10','-','-','-','-']]
+  ]
+};
+
+const HOT_NOTES = [
+  'OAT が使用する Fluid の LOUT 値を満足していることを確認する。',
+  '*****（Guideline なし）の条件では、離陸に先立ち翼上面点検を実施する。',
+  '注 9) の欄は OAT -10℃ 未満では Guideline が設定されていない。',
+  'Ice Pellets / Small Hail: VR が 100kt 未満の場合、離陸してはならない（PG の一部は 115kt）。',
+  'Small Hail の強度が通報されない（+ や − が無い）場合、Moderate Ice Pellets (PL) を適用する。',
+  'FZDZ と -FZRA の区別がつかない場合は -FZRA の表を使用する。',
+  'Active Frost の OAT は防除液散布開始から離陸までの間の最も低い OAT を適用する。',
+  '視程の判断に RVR を用いてはならない。Heavy Snow は Operations in Heavy Snow に従う。'
+];
+
+/* ---- OAT 帯の判定 ---- */
+function bandMatch(label, t){
+  if(t == null || isNaN(t)) return false;
+  let m = label.match(/^(-?[\d.]+) and above$/);
+  if(m) return t >= parseFloat(m[1]);
+  m = label.match(/^below (-?[\d.]+) to (-?[\d.]+)$/);
+  if(m) return t < parseFloat(m[1]) && t >= parseFloat(m[2]);
+  m = label.match(/^below (-?[\d.]+)$/);
+  if(m) return t < parseFloat(m[1]);
+  return false;
+}
+/* その液種で OAT が一番下の帯も下回っているか（LOUT 未満） */
+function belowLout(rows, t){
+  if(t == null || isNaN(t)) return false;
+  return !rows.some(r => bandMatch(r[0], t));
+}
+
+/* ---- 表示 ---- */
+function fmtHot(v){
+  if(v == null) return {text:'—', ng:false, note:''};
+  const note = /\^9$/.test(v) ? '注 9) OAT -10℃ 未満には Guideline なし' : '';
+  const s = v.replace(/\^\d$/, '');
+  if(s === '*')   return {text:'Guideline なし', ng:true,  note:'離陸に先立ち翼上面点検を実施する'};
+  if(s === 'N/A') return {text:'設定なし',       ng:true,  note:'この混合比にはデータがありません'};
+  if(s === '-')   return {text:'Allowance なし', ng:true,  note:''};
+  return {text:s.replace('-', ' – '), ng:false, note:note};
+}
+
+const HOTS = {fluid:0, mix:'100/0', oat:'', precip:'sn', snow:'Light', vis:-1, day:'DAY', pl:0, plGly:'PG'};
+
+function hotSave(){ try{ localStorage.setItem('coldwx.hot.v1', JSON.stringify(HOTS)); }catch(e){} }
+function hotLoad(){
+  let d = null;
+  try{ d = JSON.parse(localStorage.getItem('coldwx.hot.v1')); }catch(e){ return; }
+  if(d && typeof d === 'object') Object.assign(HOTS, d);
+}
+
+function hotBuild(){
+  const fs = $('#hotFluid');
+  if(!fs.options.length){
+    HOT_FLUIDS.forEach((f,i) => {
+      const o = document.createElement('option');
+      o.value = i; o.textContent = f.n + (f.tag ? '　【' + f.tag + '】' : '');
+      fs.appendChild(o);
+    });
+    fs.onchange = () => {
+      HOTS.fluid = +fs.value;
+      const tag = HOT_FLUIDS[HOTS.fluid].tag;
+      if(tag) HOTS.plGly = tag;
+      hotRender();
+    };
+  }
+  fs.value = String(HOTS.fluid);
+
+  const mixBox = $('#hotMix');
+  mixBox.textContent = '';
+  ['100/0','75/25','50/50'].forEach(m => {
+    const b = segButton(m, HOTS.mix === m);
+    b.style.flex = '1 1 110px';
+    b.onclick = () => { HOTS.mix = m; hotRender(); };
+    mixBox.appendChild(b);
+  });
+
+  const pBox = $('#hotPrecip');
+  pBox.textContent = '';
+  PRECIPS.forEach(p => {
+    const b = segButton(p.t, HOTS.precip === p.k);
+    b.style.flex = '1 1 230px';
+    b.style.fontSize = '13px';
+    b.onclick = () => { HOTS.precip = p.k; hotRender(); };
+    pBox.appendChild(b);
+  });
+
+  const sBox = $('#hotSnowInt');
+  sBox.textContent = '';
+  SNOW_INT.forEach(s => {
+    const b = segButton(s.k, HOTS.snow === s.k);
+    b.style.flex = '1 1 120px';
+    b.onclick = () => { HOTS.snow = s.k; hotRender(); };
+    sBox.appendChild(b);
+  });
+
+  const vs = $('#convVis');
+  if(!vs.options.length){
+    const o0 = document.createElement('option');
+    o0.value = '-1'; o0.textContent = '— 視程を選ぶ —';
+    vs.appendChild(o0);
+    CONV_ROWS.forEach((r,i) => {
+      const o = document.createElement('option');
+      o.value = i; o.textContent = r[0];
+      vs.appendChild(o);
+    });
+    vs.onchange = () => { HOTS.vis = +vs.value; hotRender(); };
+  }
+  vs.value = String(HOTS.vis);
+
+  const dn = $('#convDayNight');
+  dn.textContent = '';
+  ['DAY','NIGHT'].forEach(d => {
+    const b = segButton(d, HOTS.day === d);
+    b.style.flex = '1 1 100px';
+    b.onclick = () => { HOTS.day = d; hotRender(); };
+    dn.appendChild(b);
+  });
+
+  const pc = $('#plCond');
+  pc.textContent = '';
+  PL_TABLE[HOTS.plGly].forEach((r,i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = r[0];
+    if(i === HOTS.pl) o.selected = true;
+    pc.appendChild(o);
+  });
+  pc.onchange = () => { HOTS.pl = +pc.value; hotRender(); };
+
+  const nb = $('#hotNotes');
+  if(!nb.children.length){
+    HOT_NOTES.forEach(t => {
+      const li = document.createElement('li');
+      li.textContent = t;
+      nb.appendChild(li);
+    });
+  }
+}
+
+function hotRender(){
+  hotBuild();
+  const f = HOT_FLUIDS[HOTS.fluid];
+  const t = HOTS.oat === '' ? null : parseFloat(HOTS.oat);
+  const isSnow = HOTS.precip === 'sn';
+  $('#hotSnowWrap').hidden = !isSnow;
+
+  /* OAT の帯 */
+  const row = (t == null) ? null
+            : f.rows.find(r => bandMatch(r[0], t) && r[1] === HOTS.mix);
+  const bandRow = (t == null) ? null : f.rows.find(r => bandMatch(r[0], t));
+  $('#hotBand').textContent = (t == null) ? '—'
+    : bandRow ? ('OAT 帯: ' + bandRow[0])
+    : ('この液種の範囲外（LOUT 未満）');
+
+  /* 視程からの強度判定 */
+  if(HOTS.vis >= 0 && t != null){
+    const col = (HOTS.day === 'DAY' ? 1 : 3) + (t > -1 ? 1 : 0);
+    const v = CONV_ROWS[HOTS.vis][col];
+    $('#convOut').innerHTML = '判定: <b>' + esc(v) + '</b>　（' + esc(HOTS.day) + ' / ' +
+      (t > -1 ? 'Above -1℃' : '-1℃ and below') + '）' +
+      (v === 'Heavy' ? '　— Heavy Snow は Operations in Heavy Snow に従う' : '');
+  } else {
+    $('#convOut').textContent = (t == null) ? 'OAT を入れると判定できます' : '視程を選ぶと強度が出ます';
+  }
+
+  /* 適用 HOT */
+  const out = $('#hotOut'), src = $('#hotSrc');
+  out.classList.remove('ng','wait');
+  if(t == null){
+    out.classList.add('wait');
+    out.textContent = 'OAT を入れてください';
+    src.textContent = '';
+  } else if(!bandRow){
+    out.classList.add('wait');
+    out.textContent = '範囲外（LOUT 未満）';
+    src.textContent = esc(f.n) + ' の表は OAT ' + esc(f.rows[f.rows.length-1][0]) + ' までです。';
+  } else if(!row){
+    out.classList.add('wait');
+    out.textContent = 'この帯に ' + HOTS.mix + ' の設定がありません';
+    src.textContent = '混合比を変えてください。';
+  } else {
+    const col = isSnow ? SNOW_INT.find(s => s.k === HOTS.snow).i
+                       : PRECIPS.find(p => p.k === HOTS.precip).i;
+    const r = fmtHot(row[col]);
+    out.textContent = r.text;
+    if(r.ng) out.classList.add('ng');
+    const pname = isSnow ? ('SN / SG / Snow Pellets（' + HOTS.snow + '）')
+                         : PRECIPS.find(p => p.k === HOTS.precip).t;
+    src.innerHTML = '<b>' + esc(f.n) + (f.tag ? '【' + f.tag + '】' : '') + '</b>　' +
+      esc(row[0]) + '　' + esc(row[1]) + '　' + esc(pname) +
+      (r.note ? '<br>' + esc(r.note) : '');
+  }
+
+  /* Active Frost */
+  const fo = $('#frostOut'), fsrc = $('#frostSrc');
+  fo.classList.remove('ng');
+  if(t == null){
+    fo.textContent = '—';
+    fsrc.textContent = 'OAT を入れると出ます（Type I は 0:45）';
+  } else {
+    const fr = FROST_ROWS.find(r => bandMatch(r[0], t) && r[1] === HOTS.mix)
+            || FROST_ROWS.find(r => bandMatch(r[0], t));
+    if(!fr){
+      fo.textContent = '—'; fsrc.textContent = '該当なし';
+    } else if(fr[3] === '-'){
+      fo.textContent = 'Guideline なし'; fo.classList.add('ng');
+      fsrc.textContent = fr[0] + ' — No Holdover Time Guideline Exist';
+    } else {
+      fo.textContent = fr[3].replace(/\^\d$/,'');
+      fsrc.innerHTML = 'Type IV　' + esc(fr[0]) + '　' + esc(fr[1]) +
+        '　／　Type II ' + esc(fr[2]) + '　／　Type I 0:45' +
+        (fr[1] !== HOTS.mix ? '<br>（選択中の ' + esc(HOTS.mix) + ' はこの帯に無いため ' + esc(fr[1]) + ' を表示）' : '');
+    }
+  }
+
+  /* Ice Pellet */
+  const po = $('#plOut'), psrc = $('#plSrc');
+  po.classList.remove('ng');
+  const gly = HOTS.plGly;
+  if(t == null){
+    po.textContent = '—';
+    psrc.textContent = 'OAT を入れると出ます（' + gly + ' の表）';
+  } else {
+    let ci = -1;
+    if(t > 0) ci = 0;
+    else if(t >= -5) ci = 1;
+    else if(t >= -10) ci = 2;
+    else if(t >= -16) ci = 3;
+    else if(t >= -22) ci = 4;
+    const rr = PL_TABLE[gly][HOTS.pl];
+    if(ci < 0){
+      po.textContent = 'Allowance なし'; po.classList.add('ng');
+      psrc.textContent = 'OAT -22℃ 未満は設定されていません（' + gly + '）';
+    } else {
+      const raw = rr[1][ci];
+      const v = fmtHot(raw);
+      po.textContent = (raw === '-') ? 'Allowance なし' : (raw.replace(/\^\d$/,'') + ' 分');
+      if(raw === '-') po.classList.add('ng');
+      psrc.innerHTML = esc(gly) + '　' + esc(PL_OAT[ci]) + '　' + esc(rr[0]) +
+        (/\^2$/.test(raw) ? '<br>CAUTION: VR が 115kt 未満の場合、離陸してはならない。' : '');
+    }
+  }
+
+  hotSave();
+}
+
+/* ---- ページ切替 ---- */
+function showPage(p){
+  $('#pg-toperf').hidden = (p !== 'toperf');
+  $('#pg-hot').hidden    = (p !== 'hot');
+  document.querySelectorAll('#tabs .tab').forEach(b => {
+    b.setAttribute('aria-pressed', b.dataset.page === p ? 'true' : 'false');
+  });
+  $('#pgTitle').textContent = (p === 'hot') ? 'HOLD OVER TIME' : '離陸適用性能';
+  $('#pgSub').textContent = (p === 'hot')
+    ? 'B777-26-09 AOM BULLETIN  EFFECT. NOV 06, 2026'
+    : 'COLD WX TYPE Ⅳ 2026.02 REV4';
+  try{ localStorage.setItem('coldwx.page.v1', p); }catch(e){}
+  if(p === 'hot') hotRender();
+}
+
+/* =======================================================================
    起動
    ======================================================================= */
 load();
+hotLoad();
 let dayPref = false;
 try{ dayPref = localStorage.getItem(LS_THEME) === 'day'; }catch(e){}
 applyTheme(dayPref);
@@ -760,9 +1333,24 @@ $('#btnReset').onclick = () => {
   STATE.inchWhole = '0+';
   STATE.inchFrac = INCH[0][0];
   render();
+  /* HOLD OVER TIME 側も初期状態へ戻す */
+  HOTS.fluid = 0; HOTS.mix = '100/0'; HOTS.oat = ''; HOTS.precip = 'sn';
+  HOTS.snow = 'Light'; HOTS.vis = -1; HOTS.day = 'DAY'; HOTS.pl = 0; HOTS.plGly = 'PG';
+  $('#hotOat').value = '';
+  hotRender();
 };
 
+document.querySelectorAll('#tabs .tab').forEach(b => {
+  b.onclick = () => showPage(b.dataset.page);
+});
+$('#hotOat').value = HOTS.oat;
+$('#hotOat').addEventListener('input', e => { HOTS.oat = e.target.value; hotRender(); });
+
 render();
+hotRender();
+let page0 = 'toperf';
+try{ if(localStorage.getItem('coldwx.page.v1') === 'hot') page0 = 'hot'; }catch(e){}
+showPage(page0);
 updNetBadge();
 
 if(SW_OK){

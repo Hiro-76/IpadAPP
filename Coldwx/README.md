@@ -115,6 +115,48 @@ RWYCC 2 なら `15/11mm・MP` が出る。
 
 ---
 
+## HOLD OVER TIME タブ
+
+ヘッダーのタブで **離陸適用性能** と **HOLD OVER TIME** を切り替える。最後に見ていた
+タブは次回も開く。
+
+出典は離陸適用性能とは別で、**B777-26-09 AIRPLANE OPERATIONS MANUAL Bulletin
+（Effect. NOV 06, 2026）**。スプレッドシートではなく、この Bulletin の表をそのまま写した。
+
+> スプレッドシート（`Cold Wx TYPEⅣ 2026.02 REV4`）の HOT 値は Bulletin と違っていた
+> （例: GENERIC -3 and above 100/0 の Snow Light が 1:00 / Bulletin は 0:55）。
+> さらにスプレッドシートはレンジの**上限しか持っていない**（`1:15 – 2:15` が `2:15` だけ）。
+> HOT はレンジで示されるものなので、Bulletin を正とした。
+
+### 入れるもの
+
+| 欄 | 内容 |
+|---|---|
+| 液種 | 9 種（GENERIC / KILFROST ABC-S PLUS / CLARIANT SAFEWING MP IV LAUNCH・LAUNCH PLUS / ABAX ECOWING AD-49 / DOW UCAR ENDURANCE EG106・FLIGHTGUARD AD-49 / CRYOTECH POLAR GUARD ADVANCE・XTEND） |
+| 混合比 | 100/0 / 75/25 / 50/50 |
+| OAT | 数値入力。入れると該当の OAT 帯を表示し、LOUT 未満なら「範囲外」と出す |
+| 降水現象 | FZFG・IC / SN with FZFG / SN・SG・Snow Pellets / FZDZ / -FZRA / SNRA・RASN / Rain on Cold Soaked Wing |
+| 降雪強度 | Moderate / Light / Very Light（SN を選んだときだけ出る） |
+
+### 出るもの
+
+- **適用 HOT** — レンジはそのままレンジで出る（`1:15 – 2:15`）。Guideline が無い欄は
+  「Guideline なし（離陸に先立ち翼上面点検）」、混合比の設定が無い欄は「設定なし」。
+  下に液種・OAT 帯・混合比・降水現象を出すので、Bulletin と突き合わせられる
+- **Active Frost** — OAT と混合比から Type IV を出す（Type II と Type I 0:45 も併記）
+- **Ice Pellet / Small Hail** — 液種の EG/PG に応じた Allowance Times。
+  VR 115kt の CAUTION が付く欄ではその注意も出す
+- **視程からの降雪強度判定** — Snowfall Intensity Conversion Table。視程と昼夜を選ぶと
+  OAT から -1℃ の境を見て強度を出す。**目安の表示で、降雪強度は自分で選ぶ**
+  （元のスプレッドシートも「Conversion Tableでは LIGHT」と併記するだけの作り）
+
+### データの場所
+
+`index.html` の `HOT_FLUIDS`（9 液種 × 10 行 × 9 列）、`CONV_ROWS`、`FROST_ROWS`、
+`PL_TABLE`。Bulletin が改訂されたらここを差し替える。
+
+---
+
 ## ファイル
 
 | ファイル | 内容 |
@@ -124,7 +166,7 @@ RWYCC 2 なら `15/11mm・MP` が出る。
 | `manifest.webmanifest` | ホーム画面追加用 |
 | `icons/` | アイコン 6 サイズ |
 
-**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.0.4`）を上げる。上げないと、
+**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.1.0`）を上げる。上げないと、
 ホーム画面から起動した iPad が古いキャッシュのまま開く。上げておけば、起動時に
 「新しいバージョンがあります」が出て `更新` で入れ替わる。
 
