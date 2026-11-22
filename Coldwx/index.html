@@ -1121,23 +1121,11 @@ const PL_TABLE = {
   ]
 };
 
+/* 元表 Hold Over Time シートの B12・B13・B14 の 3 項目 */
 const HOT_NOTES = [
-  'Heavy Snow には Holdover Time の Guideline が無い。離陸前 5 分以内に翼上面点検を実施する' +
-    '（Operations in Heavy Snow）。',
-  '降雪強度は Snowfall Intensity Conversion Table で判定する。対象は SN / SG / Snow Pellets、' +
-    'Blowing または Drifting Snow を伴うもの、それらと Ice Crystal (IC) の Mixed Condition、' +
-    'SN FZFG、SN RA・SN DZ。METAR の通報強度ではなく、この表の判定を使う。',
-  'SN / SG / Snow Pellets と IC の Mixed Condition は、SN / SG / Snow Pellets の表を使用する。',
-  'SNRA / RASN の欄は Moderate Snow と確認できる場合のみ。Very Light / Light Snow と ' +
-    'Light Rain (-RA) もしくは Drizzle の Mixed Condition は -FZRA の表を使用する。',
-  'OAT が使用する Fluid の LOUT 値を満足していることを確認する。',
-  '*****（Guideline なし）の条件では、離陸に先立ち翼上面点検を実施する。',
-  '注 9) の欄は OAT -10℃ 未満では Guideline が設定されていない。',
-  'Ice Pellets / Small Hail: VR が 100kt 未満の場合、離陸してはならない（PG の一部は 115kt）。',
-  'Small Hail の強度が通報されない（+ や − が無い）場合、Moderate Ice Pellets (PL) を適用する。',
-  'FZDZ と -FZRA の区別がつかない場合は -FZRA の表を使用する。',
-  'Active Frost の OAT は防除液散布開始から離陸までの間の最も低い OAT を適用する。',
-  '視程の判断に RVR を用いてはならない。Heavy Snow は Operations in Heavy Snow に従う。'
+  '① FZDZ、-FZRA 区別がつかない場合は -FZRA',
+  '② SN と IC の MIX Condition は SN',
+  '③ Small Hail が通報された場合は同等強度の Ice Pellets を適用'
 ];
 
 /* ---- OAT 帯の判定 ---- */

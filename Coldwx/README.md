@@ -159,6 +159,17 @@ RWYCC 2 なら `15/11mm・MP` が出る。
   そのため視程の欄は SN / SN FZFG / SNRA の 3 つで出る（強度で列が分かれるのは SN だけ
   なので、SN FZFG と SNRA では判定の表示だけ）
 
+### NOTES 欄
+
+画面いちばん下の NOTES は、元表 Hold Over Time シートの B12・B13・B14 の 3 項目だけ。
+
+- ① FZDZ、-FZRA 区別がつかない場合は -FZRA
+- ② SN と IC の MIX Condition は SN
+- ③ Small Hail が通報された場合は同等強度の Ice Pellets を適用
+
+Bulletin の他の NOTE は、まとめて並べるのではなく**関係する場面で出す**（下の
+「降水現象ごとの適用条件」、Heavy のときの表示、範囲外のときの表示）。
+
 ### 降水現象ごとの適用条件
 
 降水現象を選ぶと、その欄に付いている Bulletin の NOTE を下に出す。
@@ -203,7 +214,7 @@ SNRA / RASN は Moderate Snow のときだけの欄なので、判定が Moderat
 | `manifest.webmanifest` | ホーム画面追加用 |
 | `icons/` | アイコン 6 サイズ |
 
-**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.1.2`）を上げる。上げないと、
+**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.1.3`）を上げる。上げないと、
 ホーム画面から起動した iPad が古いキャッシュのまま開く。上げておけば、起動時に
 「新しいバージョンがあります」が出て `更新` で入れ替わる。
 
