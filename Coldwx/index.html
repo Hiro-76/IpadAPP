@@ -332,7 +332,7 @@ const ROWS = [
   { id:12, label:'WET SNOW 0～11（ER）',
     cells:['15/11mm・M','15/11mm・M','15/11mm・M','15/11mm・MP','15/11mm・P','離着陸不可'],
     sup:[19,25,24,23,21,18,17,14,13],
-    cond:c => c.type === '300ER＆F' && anyT(c, WET, mm => mm < 11) },
+    cond:c => c.type === '300ER＆F' && anyT(c, WET, mm => mm < 12) },
 
   { id:13, label:'WET SNOW 12～25',
     cells:['35/25mm・MP','35/25mm・MP','35/25mm・MP','35/25mm・MP','35/25mm・P','離着陸不可'],
@@ -371,7 +371,7 @@ const ROWS = [
 
   { id:22, label:'SLUSH ALL 4～6',
     cells:['6mm・SLUSH','6mm・SLUSH','6mm・SLUSH','6mm・SLUSH','6mm・SLUSH','離着陸不可'],
-    sup:[25,24],
+    sup:[25,24,23],
     cond:c => allT(c, SLUSH) && c.thirds.some(t => t.mm >= 6) },
 
   { id:23, label:'SLUSH ALL 7～12',
