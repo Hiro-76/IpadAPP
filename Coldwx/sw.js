@@ -3,7 +3,7 @@
    scope は Coldwx/ 配下のみ。ルートの NAVLOG アプリとは独立して動作する。
    VERSION を上げれば全ファイルを取り直す。
    ======================================================================= */
-const VERSION = 'coldwx-v1.0.1';
+const VERSION = 'coldwx-v1.0.2';
 const CACHE   = VERSION;
 
 /* sw.js からの相対パス */

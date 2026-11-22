@@ -377,7 +377,8 @@ const ROWS = [
   { id:23, label:'SLUSH ALL 7～12',
     cells:['12mm・SLUSH','12mm・SLUSH','12mm・SLUSH','12mm・SLUSH','12mm・SLUSH','離着陸不可'],
     sup:[25,24],
-    cond:c => allT(c, SLUSH) && c.thirds.some(t => t.mm >= 12) },
+    /* 元表 L23 は「7～11ｍｍ」の判定値 11 ちょうどを見る（>=12 ではない） */
+    cond:c => allT(c, SLUSH) && c.thirds.some(t => t.mm === 11) },
 
   { id:24, label:'限界超え（DRY 153～ / WET 51～ / SLUSH 13～）',
     cells:['離着陸不可','離着陸不可','離着陸不可','離着陸不可','離着陸不可','離着陸不可'],
