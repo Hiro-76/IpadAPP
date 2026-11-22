@@ -135,6 +135,11 @@ main{max-width:1100px;margin:0 auto;padding:14px 10px 90px}
   padding:9px 12px;font-size:13.5px;line-height:1.6;color:var(--plan);
 }
 .convout b{font-size:19px;color:var(--cold);letter-spacing:.06em}
+.conv-note{margin:6px 0 0;font-size:11.5px;line-height:1.65;color:var(--plan)}
+/* Heavy は表に Holdover Time が無いので、選んだときも色で分かるようにする */
+.seg.heavy[aria-pressed="true"]{background:var(--late);border-color:var(--late);color:#fff}
+/* 視程からの判定と一致しているボタンに印を付ける */
+.seg.fromconv::after{content:'　◂視程';font-size:10px;letter-spacing:0;opacity:.75}
 #hotOut.ng,#frostOut.ng,#plOut.ng{color:var(--late)}
 #frostOut,#plOut{font-size:clamp(24px,5vw,40px)}
 .card{
@@ -342,10 +347,17 @@ select{
     <h2>Precipitation<span class="jp">降水現象</span></h2>
     <div class="segs" id="hotPrecip"></div>
     <div id="hotSnowWrap" hidden>
-      <div class="lbl" style="margin-top:12px">降雪強度</div>
-      <div class="segs" id="hotSnowInt"></div>
+      <div id="hotIntWrap">
+        <div class="lbl" id="hotIntLbl" style="margin-top:12px">降雪強度</div>
+        <div class="segs" id="hotSnowInt"></div>
+      </div>
       <div class="conv">
         <div class="lbl">視程から判定する（Snowfall Intensity Conversion Table）</div>
+        <p class="conv-note">
+          次の気象現象の降雪強度は、METAR の通報強度ではなくこの表で判定する：
+          SN / SG / Snow Pellets ／ Blowing・Drifting Snow を伴うもの ／
+          それらと Ice Crystal (IC) の Mixed Condition ／ SN FZFG ／ SN RA・SN DZ
+        </p>
         <div class="convrow">
           <select id="convVis"></select>
           <div class="segs" id="convDayNight"></div>
@@ -982,6 +994,14 @@ const PRECIPS = [
   {k:'rcsw',   i:10,t:'Rain on Cold Soaked Wing'}
 ];
 const SNOW_INT = [{k:'Moderate', i:4}, {k:'Light', i:5}, {k:'Very Light', i:6}];
+/* Heavy は表に列が無い（Guideline なし）が、選べないと判定を写せないので並べる */
+const SNOW_INT_ALL = ['Heavy', 'Moderate', 'Light', 'Very Light'];
+/* 視程から判定できた強度。null なら判定していない */
+let CONV_RESULT = null;
+/* 降雪強度を Snowfall Intensity Conversion Table で判定する現象
+   （SN / SG / Snow Pellets、Blowing・Drifting Snow を伴うもの、IC との Mixed、
+     SN FZFG、SN RA・SN DZ）。SN 以外は列が強度で分かれない。 */
+const SNOW_FAMILY = ['sn', 'snfzfg', 'snra'];
 
 /* Snowfall Intensity Conversion Table（視程 → 強度） */
 const CONV_ROWS = [
@@ -1051,6 +1071,14 @@ const PL_TABLE = {
 };
 
 const HOT_NOTES = [
+  'Heavy Snow には Holdover Time の Guideline が無い。離陸前 5 分以内に翼上面点検を実施する' +
+    '（Operations in Heavy Snow）。',
+  '降雪強度は Snowfall Intensity Conversion Table で判定する。対象は SN / SG / Snow Pellets、' +
+    'Blowing または Drifting Snow を伴うもの、それらと Ice Crystal (IC) の Mixed Condition、' +
+    'SN FZFG、SN RA・SN DZ。METAR の通報強度ではなく、この表の判定を使う。',
+  'SN / SG / Snow Pellets と IC の Mixed Condition は、SN / SG / Snow Pellets の表を使用する。',
+  'SNRA / RASN の欄は Moderate Snow と確認できる場合のみ。Very Light / Light Snow と ' +
+    'Light Rain (-RA) もしくは Drizzle の Mixed Condition は -FZRA の表を使用する。',
   'OAT が使用する Fluid の LOUT 値を満足していることを確認する。',
   '*****（Guideline なし）の条件では、離陸に先立ち翼上面点検を実施する。',
   '注 9) の欄は OAT -10℃ 未満では Guideline が設定されていない。',
@@ -1089,7 +1117,8 @@ function fmtHot(v){
   return {text:s.replace('-', ' – '), ng:false, note:note};
 }
 
-const HOTS = {fluid:0, mix:'100/0', oat:'', precip:'sn', snow:'Light', vis:-1, day:'DAY', pl:0, plGly:'PG'};
+const HOTS = {fluid:0, mix:'100/0', oat:'', precip:'sn', snow:'Light', convApplied:null,
+              vis:-1, day:'DAY', pl:0, plGly:'PG'};
 
 function hotSave(){ try{ localStorage.setItem('coldwx.hot.v1', JSON.stringify(HOTS)); }catch(e){} }
 function hotLoad(){
@@ -1134,12 +1163,19 @@ function hotBuild(){
     pBox.appendChild(b);
   });
 
+  /* 視程からの判定は自動で入る。手で選び直すこともできる（上書きは
+     視程・昼夜・OAT を変えて判定が変わるまで残る）。 */
+  $('#hotIntLbl').textContent = CONV_RESULT
+    ? '降雪強度（視程から自動反映／手で変更できます）'
+    : '降雪強度（視程を選ぶと自動で入ります）';
   const sBox = $('#hotSnowInt');
   sBox.textContent = '';
-  SNOW_INT.forEach(s => {
-    const b = segButton(s.k, HOTS.snow === s.k);
-    b.style.flex = '1 1 120px';
-    b.onclick = () => { HOTS.snow = s.k; hotRender(); };
+  SNOW_INT_ALL.forEach(k => {
+    const b = segButton(k, HOTS.snow === k);
+    b.style.flex = '1 1 110px';
+    if(k === 'Heavy') b.classList.add('heavy');
+    if(CONV_RESULT === k) b.classList.add('fromconv');
+    b.onclick = () => { HOTS.snow = k; hotRender(); };
     sBox.appendChild(b);
   });
 
@@ -1187,11 +1223,32 @@ function hotBuild(){
 }
 
 function hotRender(){
-  hotBuild();
   const f = HOT_FLUIDS[HOTS.fluid];
   const t = HOTS.oat === '' ? null : parseFloat(HOTS.oat);
   const isSnow = HOTS.precip === 'sn';
-  $('#hotSnowWrap').hidden = !isSnow;
+
+  /* 先に視程から強度を判定し、降雪強度へ自動で入れる。
+     判定が変わったときだけ上書きするので、手で選び直した分はそのまま残る。 */
+  CONV_RESULT = null;
+  if(HOTS.vis >= 0 && t != null){
+    const ci = (HOTS.day === 'DAY' ? 1 : 3) + (t > -1 ? 1 : 0);
+    CONV_RESULT = CONV_ROWS[HOTS.vis][ci];
+  }
+  if(CONV_RESULT){
+    if(CONV_RESULT !== HOTS.convApplied){
+      HOTS.snow = CONV_RESULT;
+      HOTS.convApplied = CONV_RESULT;
+    }
+  } else {
+    HOTS.convApplied = null;
+  }
+
+  hotBuild();
+  /* Conversion Table で強度を判定する現象。SN 以外は列が強度で分かれないので、
+     強度ボタンは出さず、判定結果だけを見せる。 */
+  const usesConv = SNOW_FAMILY.indexOf(HOTS.precip) >= 0;
+  $('#hotSnowWrap').hidden = !usesConv;
+  $('#hotIntWrap').hidden  = !isSnow;
 
   /* OAT の帯 */
   const row = (t == null) ? null
@@ -1202,12 +1259,25 @@ function hotRender(){
     : ('この液種の範囲外（LOUT 未満）');
 
   /* 視程からの強度判定 */
-  if(HOTS.vis >= 0 && t != null){
-    const col = (HOTS.day === 'DAY' ? 1 : 3) + (t > -1 ? 1 : 0);
-    const v = CONV_ROWS[HOTS.vis][col];
-    $('#convOut').innerHTML = '判定: <b>' + esc(v) + '</b>　（' + esc(HOTS.day) + ' / ' +
-      (t > -1 ? 'Above -1℃' : '-1℃ and below') + '）' +
-      (v === 'Heavy' ? '　— Heavy Snow は Operations in Heavy Snow に従う' : '');
+  if(CONV_RESULT){
+    let extra = '';
+    if(HOTS.snow !== CONV_RESULT){
+      extra = '<br>いまは手動で <b>' + esc(HOTS.snow) + '</b> を選んでいます' +
+              '（視程・昼夜・OAT を変えると判定が入り直します）。';
+    } else {
+      extra = '<br>降雪強度へ自動で反映しました。必要なら上のボタンで変更できます。';
+    }
+    if(CONV_RESULT === 'Heavy'){
+      extra += '<br>Heavy Snow は Holdover Time の Guideline が無い。' +
+               '離陸前 5 分以内に翼上面点検（Operations in Heavy Snow）。';
+    }
+    if(HOTS.precip === 'snra' && HOTS.snow !== 'Moderate'){
+      extra += '<br>SNRA / RASN の欄は Moderate Snow と確認できる場合のみ。' +
+               'Very Light / Light Snow と Light Rain もしくは Drizzle の Mixed Condition は ' +
+               '-FZRA の表を使う。';
+    }
+    $('#convOut').innerHTML = '判定: <b>' + esc(CONV_RESULT) + '</b>　（' + esc(HOTS.day) + ' / ' +
+      (t > -1 ? 'Above -1℃' : '-1℃ and below') + '）' + extra;
   } else {
     $('#convOut').textContent = (t == null) ? 'OAT を入れると判定できます' : '視程を選ぶと強度が出ます';
   }
@@ -1227,17 +1297,31 @@ function hotRender(){
     out.classList.add('wait');
     out.textContent = 'この帯に ' + HOTS.mix + ' の設定がありません';
     src.textContent = '混合比を変えてください。';
+  } else if(isSnow && HOTS.snow === 'Heavy'){
+    /* Heavy Snow は表に列が無い。Holdover Time ではなく翼上面点検で担保する。 */
+    out.classList.add('ng');
+    out.textContent = '翼上面点検（5 min）';
+    src.innerHTML = '<b>' + esc(f.n) + (f.tag ? '【' + f.tag + '】' : '') + '</b>　' +
+      esc(row[0]) + '　' + esc(row[1]) + '　SN / SG / Snow Pellets（Heavy）<br>' +
+      'Heavy Snow には Holdover Time の Guideline が無い。' +
+      '離陸前 5 分以内に翼上面点検を実施する（Operations in Heavy Snow）。';
   } else {
-    const col = isSnow ? SNOW_INT.find(s => s.k === HOTS.snow).i
-                       : PRECIPS.find(p => p.k === HOTS.precip).i;
+    const si = SNOW_INT.find(s => s.k === HOTS.snow);
+    const col = isSnow ? (si ? si.i : 5) : PRECIPS.find(p => p.k === HOTS.precip).i;
     const r = fmtHot(row[col]);
     out.textContent = r.text;
     if(r.ng) out.classList.add('ng');
     const pname = isSnow ? ('SN / SG / Snow Pellets（' + HOTS.snow + '）')
                          : PRECIPS.find(p => p.k === HOTS.precip).t;
+    let warn = r.note ? esc(r.note) : '';
+    if(HOTS.precip === 'snra' && CONV_RESULT && HOTS.snow !== 'Moderate'){
+      warn += (warn ? '<br>' : '') +
+        'SNRA / RASN は Moderate Snow のときのみ。いまの判定は ' + esc(HOTS.snow) +
+        ' なので -FZRA の表を使う。';
+    }
     src.innerHTML = '<b>' + esc(f.n) + (f.tag ? '【' + f.tag + '】' : '') + '</b>　' +
       esc(row[0]) + '　' + esc(row[1]) + '　' + esc(pname) +
-      (r.note ? '<br>' + esc(r.note) : '');
+      (warn ? '<br>' + warn : '');
   }
 
   /* Active Frost */
@@ -1335,7 +1419,7 @@ $('#btnReset').onclick = () => {
   render();
   /* HOLD OVER TIME 側も初期状態へ戻す */
   HOTS.fluid = 0; HOTS.mix = '100/0'; HOTS.oat = ''; HOTS.precip = 'sn';
-  HOTS.snow = 'Light'; HOTS.vis = -1; HOTS.day = 'DAY'; HOTS.pl = 0; HOTS.plGly = 'PG';
+  HOTS.snow = 'Light'; HOTS.convApplied = null; HOTS.vis = -1; HOTS.day = 'DAY'; HOTS.pl = 0; HOTS.plGly = 'PG';
   $('#hotOat').value = '';
   hotRender();
 };

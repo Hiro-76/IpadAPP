@@ -136,7 +136,7 @@ RWYCC 2 なら `15/11mm・MP` が出る。
 | 混合比 | 100/0 / 75/25 / 50/50 |
 | OAT | 数値入力。入れると該当の OAT 帯を表示し、LOUT 未満なら「範囲外」と出す |
 | 降水現象 | FZFG・IC / SN with FZFG / SN・SG・Snow Pellets / FZDZ / -FZRA / SNRA・RASN / Rain on Cold Soaked Wing |
-| 降雪強度 | Moderate / Light / Very Light（SN を選んだときだけ出る） |
+| 降雪強度 | Heavy / Moderate / Light / Very Light（SN を選んだときだけ出る） |
 
 ### 出るもの
 
@@ -147,8 +147,27 @@ RWYCC 2 なら `15/11mm・MP` が出る。
 - **Ice Pellet / Small Hail** — 液種の EG/PG に応じた Allowance Times。
   VR 115kt の CAUTION が付く欄ではその注意も出す
 - **視程からの降雪強度判定** — Snowfall Intensity Conversion Table。視程と昼夜を選ぶと
-  OAT から -1℃ の境を見て強度を出す。**目安の表示で、降雪強度は自分で選ぶ**
-  （元のスプレッドシートも「Conversion Tableでは LIGHT」と併記するだけの作り）
+  OAT から -1℃ の境を見て強度を判定し、**降雪強度へ自動で入る**。
+  METAR の通報強度ではなくこの表の判定を使う決まりのため、既定で反映する。
+  判定が入ったボタンには `◂視程` が付く
+
+  手で別の強度を選ぶこともできる。手動の選択は、視程・昼夜・OAT を変えて判定が
+  変わるまで残る（変わったらまた自動で入り直す）。
+
+  この表で判定する現象は SN / SG / Snow Pellets、Blowing・Drifting Snow を伴うもの、
+  それらと Ice Crystal (IC) の Mixed Condition、SN FZFG、SN RA・SN DZ。
+  そのため視程の欄は SN / SN FZFG / SNRA の 3 つで出る（強度で列が分かれるのは SN だけ
+  なので、SN FZFG と SNRA では判定の表示だけ）
+
+### Heavy のとき
+
+Heavy Snow には Holdover Time の Guideline が無い。適用 HOT の欄は
+**翼上面点検（5 min）** と赤で出し、「離陸前 5 分以内に翼上面点検を実施する
+（Operations in Heavy Snow）」を添える。降雪強度のボタンにも Heavy があるので、
+視程から Heavy が出たときも手で選んだときも同じ表示になる。
+
+SNRA / RASN は Moderate Snow のときだけの欄なので、判定が Moderate でないときは
+「-FZRA の表を使う」と出す。
 
 ### データの場所
 
@@ -166,7 +185,7 @@ RWYCC 2 なら `15/11mm・MP` が出る。
 | `manifest.webmanifest` | ホーム画面追加用 |
 | `icons/` | アイコン 6 サイズ |
 
-**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.1.0`）を上げる。上げないと、
+**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.1.1`）を上げる。上げないと、
 ホーム画面から起動した iPad が古いキャッシュのまま開く。上げておけば、起動時に
 「新しいバージョンがあります」が出て `更新` で入れ替わる。
 
@@ -177,7 +196,7 @@ RWYCC 2 なら `15/11mm・MP` が出る。
 
 ## 動作確認
 
-ヘッドレスブラウザで実際に動かし、元表の各行・境界・INCH 換算の 25 ケースが
+ヘッドレスブラウザで実際に動かし、元表の各行・境界・INCH 換算の 25 ケース、HOLD OVER TIME は 40 ケースが
 元表と一致することを確認済み。元表自身が計算している例
 （全区分 ICE・RWYCC 1・ER → `15/11mm・P`、INCH `3+` と `0.25` → `83mm`）も一致する。
 
