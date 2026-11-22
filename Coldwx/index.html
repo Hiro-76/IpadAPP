@@ -29,6 +29,9 @@
   --well:#223247;
   /* 出した答えの背景。入力欄（--well）とは色味を変えて、結果だと一目で分かるようにする */
   --out-bg:#07202e;
+  /* 使わない欄（ICE のときの積雪深） */
+  --off-bg:#11161d;
+  --off-rule:#303c4c;
   --well-rule:#4d6a95;
   --plan:#8ea6bf;        /* 説明・見出し */
   --ink:#ffc247;         /* 選択中（琥珀） */
@@ -45,6 +48,8 @@ html[data-theme="day"]{
   --rule:#c8d2dd;
   --well:#d7e3f1;
   --out-bg:#dcf0fd;
+  --off-bg:#e4e7ea;
+  --off-rule:#b4bcc6;
   --well-rule:#8ba2bc;
   --plan:#41546a;
   --ink:#a05a00;
@@ -136,8 +141,14 @@ select{
   border-radius:9px;padding:10px;min-height:46px;
   font:700 17px/1.2 ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.04em;
 }
-.third.ice select{opacity:.4}
-.third .note-ice{display:none;font-size:10.5px;color:var(--plan);margin-top:5px;line-height:1.5}
+/* ICE or COMPACTED SNOW では積雪深を使わない。選べなくしたうえで、
+   地色も変えて「ここは触らない欄」だと分かるようにする */
+.third.ice select{
+  background:var(--off-bg);border-color:var(--off-rule);border-style:dashed;
+  color:var(--plan);-webkit-text-fill-color:var(--plan);opacity:1;
+  cursor:not-allowed;text-decoration:line-through;
+}
+.third .note-ice{display:none;font-size:11.5px;color:var(--cold);margin-top:6px;line-height:1.5}
 .third.ice .note-ice{display:block}
 .mirror{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--plan);cursor:pointer;margin-top:10px}
 .mirror input{accent-color:var(--ink);width:17px;height:17px}
@@ -548,11 +559,13 @@ function buildThirds(){
     wrap.appendChild(segs);
 
     const l2 = document.createElement('div');
-    l2.className = 'lbl'; l2.textContent = '積雪深';
+    l2.className = 'lbl';
+    l2.textContent = (t.snow === ICE) ? '積雪深（使用しません）' : '積雪深';
     wrap.appendChild(l2);
 
     const sel = document.createElement('select');
-    sel.disabled = STATE.mirror && i > 0;
+    /* ICE or COMPACTED SNOW は積雪深を使わないので選べなくする */
+    sel.disabled = (STATE.mirror && i > 0) || t.snow === ICE;
     DEPTHS.forEach(([label]) => {
       const o = document.createElement('option');
       o.value = label; o.textContent = label;
