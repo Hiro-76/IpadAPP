@@ -40,6 +40,10 @@
   --cold:#7fc9ff;        /* このアプリの色 */
   --text:#dbe7f3;
   --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.35);
+  /* 英数字は等幅、日本語はゴシック。字形ごとに後ろへ落ちるので 1 つの並びで済む */
+  --font:ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",
+         "Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",YuGothic,
+         Meiryo,"Noto Sans JP",sans-serif;
 }
 html[data-theme="day"]{
   --bg:#eef1f4;
@@ -63,7 +67,7 @@ html[data-theme="day"]{
 html,body{margin:0;padding:0}
 body{
   background:var(--bg);color:var(--text);
-  font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace;
+  font-family:var(--font);
   font-size:14px;-webkit-text-size-adjust:100%;
   padding-bottom:env(safe-area-inset-bottom);
 }
@@ -120,22 +124,46 @@ main{max-width:1100px;margin:0 auto;padding:14px 10px 90px}
 .oatrow input{
   width:7em;background:var(--well);border:1px solid var(--well-rule);border-radius:9px;
   padding:10px;min-height:48px;color:var(--ink);
-  font:700 26px/1.2 ui-monospace,"SF Mono",Menlo,Consolas,monospace;text-align:center;
+  font:700 26px/1.2 var(--font);text-align:center;
 }
 .oatband{
   flex:1 1 200px;background:var(--panel2);border:1px solid var(--rule);border-radius:9px;
   padding:10px 14px;font-size:15px;font-weight:700;letter-spacing:.06em;color:var(--text);
 }
-.lbl{font-size:10px;letter-spacing:.14em;color:var(--plan)}
+.lbl{font-size:12.5px;letter-spacing:.1em;color:var(--plan)}
 .conv{margin-top:14px;border-top:1px dashed var(--rule);padding-top:12px}
 .convrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px}
-.convrow select{flex:1 1 300px;width:auto}
+.convrow select{flex:0 1 auto}
 .convout{
   margin-top:10px;background:var(--panel2);border:1px solid var(--rule);border-radius:9px;
   padding:9px 12px;font-size:13.5px;line-height:1.6;color:var(--plan);
 }
 .convout b{font-size:19px;color:var(--cold);letter-spacing:.06em}
 .conv-note{margin:6px 0 0;font-size:11.5px;line-height:1.65;color:var(--plan)}
+/* ---------- METAR ---------- */
+.metarrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.metarrow input{
+  width:6.5em;background:var(--well);border:1px solid var(--well-rule);border-radius:9px;
+  padding:10px;min-height:48px;color:var(--ink);text-transform:uppercase;
+  font:700 26px/1.2 var(--font);
+  text-align:center;letter-spacing:.1em;
+}
+.btn.go{
+  background:var(--ink);border-color:var(--ink);color:#1f1403;
+  font-size:15px;font-weight:700;letter-spacing:.12em;min-height:48px;padding:8px 22px;
+}
+html[data-theme="day"] .btn.go{color:#fff}
+.btn.go:hover{border-color:var(--ink);filter:brightness(1.08)}
+.btn.go:disabled{opacity:.5;cursor:default;filter:none}
+.metarstate{flex:1 1 220px;font-size:12.5px;line-height:1.6;color:var(--plan)}
+.metarstate.err{color:var(--late)}
+.metarstate.ok{color:var(--ok)}
+.metarraw{
+  margin:10px 0 0;background:var(--panel2);border:1px solid var(--rule);border-radius:9px;
+  padding:10px 12px;font-size:13px;line-height:1.6;color:var(--text);
+  white-space:pre-wrap;word-break:break-word;
+}
+.metarraw[hidden],.convout[hidden]{display:none}
 /* 選んだ降水現象の適用条件（Bulletin の NOTE） */
 .precip-guide{margin:10px 0 0;padding-left:1.2em;font-size:12.5px;line-height:1.75;color:var(--text)}
 .precip-guide li{margin:3px 0}
@@ -151,25 +179,28 @@ main{max-width:1100px;margin:0 auto;padding:14px 10px 90px}
   background:var(--panel);border:1px solid var(--rule);border-radius:12px;
   margin:10px 0;padding:12px 14px;box-shadow:var(--shadow);
 }
+/* 見出しは英語のラベルより日本語の説明を読ませたいので、説明の方を大きくする */
 .card > h2{
-  margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:.18em;
+  margin:0 0 12px;font-size:13px;font-weight:700;letter-spacing:.16em;
   color:var(--plan);text-transform:uppercase;
 }
-.card > h2 .jp{text-transform:none;letter-spacing:.1em;opacity:.8;font-weight:400;margin-left:8px}
+.card > h2 .jp{text-transform:none;letter-spacing:.08em;opacity:1;color:var(--text);
+  font-size:15px;font-weight:400;margin-left:10px}
 
 /* ---------- 選択ボタン ---------- */
 .segs{display:flex;flex-wrap:wrap;gap:8px}
+/* 枠は文字数ぶんの幅にする（横いっぱいに伸ばさない）。
+   指で押せる大きさは padding と min-height で確保する。 */
 .seg{
+  flex:0 1 auto;max-width:100%;
   background:var(--well);border:1px solid var(--well-rule);border-radius:9px;
-  color:var(--text);cursor:pointer;min-height:46px;padding:8px 16px;
-  font-size:15px;font-weight:700;letter-spacing:.06em;
+  color:var(--text);cursor:pointer;min-height:46px;padding:8px 20px;
+  font-size:15px;font-weight:700;letter-spacing:.06em;text-align:center;
   transition:background-color .15s,border-color .15s,color .15s;
 }
 .seg:hover{border-color:var(--ink)}
 .seg[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:#1f1403}
 html[data-theme="day"] .seg[aria-pressed="true"]{color:#fff}
-.seg.wide{flex:1 1 180px}
-.seg.rwycc{flex:1 1 90px;text-align:center}
 
 /* ---------- 滑走路 3 区分 ---------- */
 .thirds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
@@ -181,13 +212,15 @@ html[data-theme="day"] .seg[aria-pressed="true"]{color:#fff}
   margin:0 0 8px;font-size:15px;font-weight:700;letter-spacing:.14em;color:var(--cold);
   display:flex;align-items:baseline;gap:8px;
 }
-.third > h3 small{font-size:10px;letter-spacing:.1em;color:var(--plan);font-weight:400}
-.third .lbl{font-size:10px;letter-spacing:.14em;color:var(--plan);margin:8px 0 5px}
-.third .segs .seg{flex:1 1 100%;font-size:13px;min-height:40px;padding:6px 8px;letter-spacing:.02em}
+.third > h3 small{font-size:12px;letter-spacing:.08em;color:var(--plan);font-weight:400}
+.third .lbl{font-size:12.5px;letter-spacing:.1em;color:var(--plan);margin:9px 0 6px}
+.third .segs .seg{font-size:13px;min-height:42px;padding:7px 14px;letter-spacing:.02em}
+/* プルダウンも中身の幅にする（横いっぱいにしない） */
 select{
-  width:100%;background:var(--well);color:var(--ink);border:1px solid var(--well-rule);
+  width:auto;max-width:100%;min-width:9em;
+  background:var(--well);color:var(--ink);border:1px solid var(--well-rule);
   border-radius:9px;padding:10px;min-height:46px;
-  font:700 17px/1.2 ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.04em;
+  font:700 17px/1.2 var(--font);letter-spacing:.04em;
 }
 /* ICE or COMPACTED SNOW では積雪深を使わない。選べなくしたうえで、
    地色も変えて「ここは触らない欄」だと分かるようにする */
@@ -205,25 +238,28 @@ select{
 .result{border-color:var(--cold);border-width:2px}
 .out{ text-align:center }
 /* 数値そのものの背景を入力欄と変えて、答えだと一目で分かるようにする */
+/* 枠は数値の幅ぶんだけ。横いっぱいに広げると両側が空いて間延びする */
 .out .v{
+  display:inline-block;max-width:100%;
   background:var(--out-bg);border:2px solid var(--cold);border-radius:10px;
-  padding:16px 14px;
+  padding:14px 34px;
   font-size:clamp(28px,7vw,52px);font-weight:700;letter-spacing:.04em;line-height:1.15;
   color:var(--ink);word-break:break-word;
 }
 .out .v.ng{color:var(--late)}
 .out .v.wait{font-size:17px;font-weight:400;color:var(--plan);letter-spacing:.08em}
-.out .src{margin-top:8px;font-size:12px;letter-spacing:.06em;color:var(--plan);line-height:1.6}
+.out .src{margin-top:9px;font-size:13px;letter-spacing:.05em;color:var(--plan);line-height:1.65}
 .out .src b{color:var(--text);font-weight:700}
 
 /* ---------- INCH 換算 ---------- */
 .inchrow{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:end}
 @media (max-width:720px){ .inchrow{grid-template-columns:1fr} }
-.field > .lbl{font-size:10px;letter-spacing:.14em;color:var(--plan);margin-bottom:5px}
+.field > .lbl{font-size:12.5px;letter-spacing:.1em;color:var(--plan);margin-bottom:6px}
+.field:last-child{text-align:center}
 .mm{
+  display:inline-flex;align-items:baseline;justify-content:center;gap:9px;
   background:var(--out-bg);border:2px solid var(--cold);border-radius:10px;
-  padding:10px 12px;min-height:70px;
-  display:flex;align-items:baseline;justify-content:center;gap:9px;
+  padding:10px 26px;min-height:70px;max-width:100%;
 }
 .mm b{font-size:40px;font-weight:700;letter-spacing:.04em;color:var(--ink);line-height:1.15}
 .mm i{font-style:normal;font-size:20px;font-weight:700;letter-spacing:.1em;color:var(--text);opacity:.85}
@@ -255,7 +291,6 @@ select{
 <header>
   <div class="hdr-row">
     <span class="title" id="pgTitle">離陸適用性能</span>
-    <span class="sub" id="pgSub">COLD WX TYPE Ⅳ 2026.02 REV4</span>
     <span class="spacer"></span>
     <span class="badge wait" id="netstate" title="オフライン利用の状態">CACHE …</span>
     <button class="btn theme" id="btnTheme" title="画面の明るさを切り替える"><i>☀</i>DAY</button>
@@ -332,6 +367,18 @@ select{
 </div><!-- /pg-toperf -->
 
 <div id="pg-hot" hidden>
+
+  <section class="card">
+    <h2>METAR<span class="jp">空港 4 レターで取得し、OAT と視程に反映</span></h2>
+    <div class="metarrow">
+      <input id="metarIcao" maxlength="4" inputmode="latin" autocapitalize="characters"
+             autocomplete="off" spellcheck="false" placeholder="RJTT">
+      <button class="btn go" id="metarGet">取得</button>
+      <span class="metarstate" id="metarState">4 レターを入れて取得</span>
+    </div>
+    <pre class="metarraw" id="metarRaw" hidden></pre>
+    <div class="convout" id="metarParsed" hidden></div>
+  </section>
 
   <section class="card">
     <h2>Fluid<span class="jp">液種と混合比</span></h2>
@@ -734,7 +781,6 @@ function buildInch(){
   box.textContent = '';
   INCH_WHOLE.forEach(w => {
     const b = segButton(w, STATE.inchWhole === w);
-    b.style.flex = '1 1 60px';
     b.onclick = () => { STATE.inchWhole = w; render(); };
     box.appendChild(b);
   });
@@ -1145,6 +1191,137 @@ function belowLout(rows, t){
   return !rows.some(r => bandMatch(r[0], t));
 }
 
+/* =======================================================================
+   METAR から OAT と視程を取る
+   取得元は metar.vatsim.net（CORS を許可している公開ミラー）。
+   NOAA の aviationweather.gov は CORS ヘッダを出さないのでページからは読めない。
+   取った生文を必ず画面に出し、値は自分で確かめられるようにする。
+   ======================================================================= */
+const METAR_URL = 'https://metar.vatsim.net/';
+
+/* Conversion Table の視程の上限（m）。表の括弧内の値そのまま */
+const CONV_MAX_M = [600, 1000, 1400, 1800, 2200, 2600, 3000, 3600, 4400, 5200, Infinity];
+function visRowOf(m){
+  for(let i = 0; i < CONV_MAX_M.length; i++){ if(m <= CONV_MAX_M[i]) return i; }
+  return CONV_MAX_M.length - 1;
+}
+
+/* METAR の生文から気温と卓越視程を取り出す。位置で読むので BECMG TL0800 などを拾わない。 */
+function parseMetar(raw){
+  const out = {raw: String(raw || '').trim(), icao: null, time: null,
+               tempC: null, visM: null, wx: [], err: null};
+  const tk = out.raw.replace(/=$/, '').split(/\s+/).filter(Boolean);
+  let i = 0;
+  if(tk[i] === 'METAR' || tk[i] === 'SPECI') i++;
+  if(/^[A-Z]{4}$/.test(tk[i] || '')) out.icao = tk[i++];
+  if(/^\d{6}Z$/.test(tk[i] || '')) out.time = tk[i++];
+  if(/^(AUTO|COR|NIL)$/.test(tk[i] || '')) i++;
+  if(tk[i] === 'NIL' || !tk[i]){ out.err = '観測なし（NIL）'; return out; }
+
+  /* 風。無いこともあるので在れば飛ばす */
+  if(/^(VRB|\d{3})\d{2,3}(G\d{2,3})?(KT|MPS|KMH)$/.test(tk[i] || '')) i++;
+  if(/^\d{3}V\d{3}$/.test(tk[i] || '')) i++;
+
+  /* 視程 */
+  if(/\bCAVOK\b/.test(out.raw)){
+    out.visM = 10000;
+  } else if(/^\d{4}(NDV)?$/.test(tk[i] || '')){
+    out.visM = parseInt(tk[i], 10);
+    if(out.visM === 9999) out.visM = 10000;
+    i++;
+    while(/^\d{4}[NSEW]{1,2}$/.test(tk[i] || '')) i++;   /* 方向別視程は読み飛ばす */
+  } else {
+    /* 統計マイル表記（1 1/2SM など） */
+    let sm = null;
+    if(/^M?\d+$/.test(tk[i] || '') && /^\d+\/\d+SM$/.test(tk[i+1] || '')){
+      const w = parseInt(tk[i].replace('M',''), 10);
+      const fr = tk[i+1].replace('SM','').split('/');
+      sm = w + parseInt(fr[0],10) / parseInt(fr[1],10);
+      i += 2;
+    } else if(/^M?\d+\/\d+SM$/.test(tk[i] || '')){
+      const fr = tk[i].replace('M','').replace('SM','').split('/');
+      sm = parseInt(fr[0],10) / parseInt(fr[1],10);
+      i++;
+    } else if(/^M?\d+SM$/.test(tk[i] || '')){
+      sm = parseInt(tk[i].replace('M','').replace('SM',''), 10);
+      i++;
+    }
+    if(sm != null) out.visM = Math.round(sm * 1609.34);
+  }
+
+  /* 現在天気（参考表示用）。雲量・気温の手前まで */
+  while(tk[i] && !/^(FEW|SCT|BKN|OVC|VV|NSC|NCD|SKC|CLR)/.test(tk[i]) &&
+        !/^M?\d{2}\/(M?\d{2}|\/\/)$/.test(tk[i]) && !/^(Q|A)\d{4}$/.test(tk[i])){
+    if(/^(\+|-|VC)?[A-Z]{2,8}$/.test(tk[i]) && !/^R\d{2}/.test(tk[i])) out.wx.push(tk[i]);
+    i++;
+  }
+
+  /* 気温（位置に寄らず、気温/露点の形で拾う） */
+  const tm = out.raw.match(/\s(M?\d{2})\/(M?\d{2}|\/\/)(?=\s|$)/);
+  if(tm) out.tempC = (tm[1][0] === 'M' ? -1 : 1) * parseInt(tm[1].replace('M',''), 10);
+
+  if(out.tempC == null && out.visM == null) out.err = '気温・視程を読み取れませんでした';
+  return out;
+}
+
+async function metarFetch(){
+  const st = $('#metarState'), rawBox = $('#metarRaw'), parsed = $('#metarParsed');
+  const icao = ($('#metarIcao').value || '').trim().toUpperCase();
+  st.className = 'metarstate';
+  if(!/^[A-Z]{4}$/.test(icao)){
+    st.classList.add('err');
+    st.textContent = '4 レター（例 RJTT）を入れてください';
+    return;
+  }
+  HOTS.icao = icao;
+  hotSave();
+  if(navigator.onLine === false){
+    st.classList.add('err');
+    st.textContent = 'オフラインのため取得できません。OAT と視程は手で入れてください。';
+    return;
+  }
+  st.textContent = icao + ' を取得しています…';
+  rawBox.hidden = true; parsed.hidden = true;
+  try{
+    const res = await fetch(METAR_URL + icao, {cache: 'no-store'});
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const text = (await res.text()).trim();
+    if(!text || /^\s*$/.test(text)) throw new Error('空の応答');
+    const m = parseMetar(text);
+    rawBox.hidden = false;
+    rawBox.textContent = m.raw;
+    if(m.err && m.tempC == null && m.visM == null){
+      st.classList.add('err');
+      st.textContent = m.err;
+      return;
+    }
+    const applied = [];
+    if(m.tempC != null){
+      HOTS.oat = String(m.tempC);
+      $('#hotOat').value = HOTS.oat;
+      applied.push('OAT ' + m.tempC + '℃');
+    }
+    if(m.visM != null){
+      HOTS.vis = visRowOf(m.visM);
+      HOTS.convApplied = null;          /* 視程が変わったので判定を入れ直す */
+      applied.push('視程 ' + (m.visM >= 10000 ? '10km 以上' : m.visM + ' m') +
+                   ' → ' + CONV_ROWS[HOTS.vis][0]);
+    }
+    st.classList.add('ok');
+    st.textContent = (m.icao || icao) + (m.time ? ' / ' + m.time : '') + ' を反映しました';
+    parsed.hidden = false;
+    parsed.innerHTML = '反映: <b>' + esc(applied.join('　')) + '</b>' +
+      (m.wx.length ? '<br>現在天気: ' + esc(m.wx.join(' ')) + '（降水現象は自分で選んでください）' : '') +
+      (m.tempC == null ? '<br>気温を読み取れませんでした。手で入れてください。' : '') +
+      (m.visM == null ? '<br>視程を読み取れませんでした。手で選んでください。' : '') +
+      '<br><span class="conv-note">取得元 metar.vatsim.net（公開ミラー）。上の生文で必ず確かめること。</span>';
+    hotRender();
+  }catch(e){
+    st.classList.add('err');
+    st.textContent = '取得できませんでした（' + (e && e.message || e) + '）。手で入れてください。';
+  }
+}
+
 /* レンジ表記（0:20-0:40）は、短い方が Moderate、長い方が Light。
    降雪強度が決まっている欄では、その端を取る。 */
 function pickByIntensity(v, intensity){
@@ -1168,7 +1345,7 @@ function fmtHot(v){
   return {text:s.replace('-', ' – '), ng:false, note:note};
 }
 
-const HOTS = {fluid:0, mix:'100/0', oat:'', precip:'sn', snow:'Light', convApplied:null,
+const HOTS = {fluid:0, mix:'100/0', oat:'', precip:'sn', snow:'Light', convApplied:null, icao:'',
               vis:-1, day:'DAY', pl:0, plGly:'PG'};
 
 function hotSave(){ try{ localStorage.setItem('coldwx.hot.v1', JSON.stringify(HOTS)); }catch(e){} }
@@ -1199,7 +1376,6 @@ function hotBuild(){
   mixBox.textContent = '';
   ['100/0','75/25','50/50'].forEach(m => {
     const b = segButton(m, HOTS.mix === m);
-    b.style.flex = '1 1 110px';
     b.onclick = () => { HOTS.mix = m; hotRender(); };
     mixBox.appendChild(b);
   });
@@ -1209,7 +1385,6 @@ function hotBuild(){
   PRECIPS.forEach(p => {
     const b = segButton(p.t, HOTS.precip === p.k);
     /* SN の欄だけ名前が長いので 1 行使う */
-    b.style.flex = (p.k === 'sn') ? '1 1 100%' : '1 1 230px';
     b.style.fontSize = '13px';
     b.style.whiteSpace = 'normal';
     b.style.lineHeight = '1.45';
@@ -1235,7 +1410,6 @@ function hotBuild(){
   sBox.textContent = '';
   SNOW_INT_ALL.forEach(k => {
     const b = segButton(k, HOTS.snow === k);
-    b.style.flex = '1 1 110px';
     if(k === 'Heavy') b.classList.add('heavy');
     if(CONV_RESULT === k) b.classList.add('fromconv');
     b.onclick = () => { HOTS.snow = k; hotRender(); };
@@ -1260,7 +1434,6 @@ function hotBuild(){
   dn.textContent = '';
   ['DAY','NIGHT'].forEach(d => {
     const b = segButton(d, HOTS.day === d);
-    b.style.flex = '1 1 100px';
     b.onclick = () => { HOTS.day = d; hotRender(); };
     dn.appendChild(b);
   });
@@ -1473,9 +1646,6 @@ function showPage(p){
     b.setAttribute('aria-pressed', b.dataset.page === p ? 'true' : 'false');
   });
   $('#pgTitle').textContent = (p === 'hot') ? 'HOLD OVER TIME' : '離陸適用性能';
-  $('#pgSub').textContent = (p === 'hot')
-    ? 'B777-26-09 AOM BULLETIN  EFFECT. NOV 06, 2026'
-    : 'COLD WX TYPE Ⅳ 2026.02 REV4';
   try{ localStorage.setItem('coldwx.page.v1', p); }catch(e){}
   if(p === 'hot') hotRender();
 }
@@ -1517,6 +1687,12 @@ document.querySelectorAll('#tabs .tab').forEach(b => {
 });
 $('#hotOat').value = HOTS.oat;
 $('#hotOat').addEventListener('input', e => { HOTS.oat = e.target.value; hotRender(); });
+$('#metarIcao').value = HOTS.icao || '';
+$('#metarGet').onclick = metarFetch;
+$('#metarIcao').addEventListener('keydown', e => { if(e.key === 'Enter') metarFetch(); });
+$('#metarIcao').addEventListener('input', e => {
+  e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+});
 
 render();
 hotRender();
