@@ -155,7 +155,7 @@ RWYCC 2 なら `15/11mm・MP` が出る。
 
 | 欄 | 内容 |
 |---|---|
-| 液種 | 9 種（GENERIC / KILFROST ABC-S PLUS / CLARIANT SAFEWING MP IV LAUNCH・LAUNCH PLUS / ABAX ECOWING AD-49 / DOW UCAR ENDURANCE EG106・FLIGHTGUARD AD-49 / CRYOTECH POLAR GUARD ADVANCE・XTEND） |
+| 液種 | 10 種（GENERIC / KILFROST ABC-S PLUS / CLARIANT SAFEWING MP IV LAUNCH・LAUNCH PLUS / ABAX ECOWING AD-49 / DOW UCAR ENDURANCE EG106・FLIGHTGUARD AD-49 / NEWAVE AEROCHEMICAL FCY 9311 / CRYOTECH POLAR GUARD ADVANCE・XTEND） |
 | 混合比 | 100/0 / 75/25 / 50/50 |
 | OAT | 数値入力。入れると該当の OAT 帯を表示し、LOUT 未満なら「範囲外」と出す |
 | 降水現象 | FZFG・Freezing Mist・IC / SN with FZFG / SN/SG/GS（SNOW PELLET，Blowing・Drifting Snow を伴う場合を含む） / FZDZ / -FZRA / SNRA・RASN / Rain on Cold Soaked Wing |
@@ -245,7 +245,7 @@ SNRA / RASN は Moderate Snow のときだけの欄なので、判定が Moderat
 
 ### データの場所
 
-`index.html` の `HOT_FLUIDS`（9 液種 × 10 行 × 9 列）、`CONV_ROWS`、`FROST_ROWS`、
+`index.html` の `HOT_FLUIDS`（10 液種 × 10 行 × 9 列）、`CONV_ROWS`、`FROST_ROWS`、
 `PL_TABLE`。Bulletin が改訂されたらここを差し替える。
 
 ---
@@ -259,7 +259,7 @@ SNRA / RASN は Moderate Snow のときだけの欄なので、判定が Moderat
 | `manifest.webmanifest` | ホーム画面追加用 |
 | `icons/` | アイコン 6 サイズ |
 
-**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.2.1`）を上げる。上げないと、
+**更新したとき**は `sw.js` の `VERSION`（現在 `coldwx-v1.2.2`）を上げる。上げないと、
 ホーム画面から起動した iPad が古いキャッシュのまま開く。上げておけば、起動時に
 「新しいバージョンがあります」が出て `更新` で入れ替わる。
 
@@ -270,7 +270,7 @@ SNRA / RASN は Moderate Snow のときだけの欄なので、判定が Moderat
 
 ## 動作確認
 
-ヘッドレスブラウザで実際に動かし、元表の各行・境界・INCH 換算の 25 ケース、HOLD OVER TIME は 90 ケース（METAR の解析 24 件と 4 レター入力 7 件を含む）が
+ヘッドレスブラウザで実際に動かし、元表の各行・境界・INCH 換算の 25 ケース、HOLD OVER TIME は 103 ケース（METAR の解析 24 件、4 レター入力 7 件、NEWAVE 13 件を含む）が
 元表と一致することを確認済み。元表自身が計算している例
 （全区分 ICE・RWYCC 1・ER → `15/11mm・P`、INCH `3+` と `0.25` → `83mm`）も一致する。
 
